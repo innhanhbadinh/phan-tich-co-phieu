@@ -84,19 +84,63 @@ def _ms_date(s):
 
 # ---------------------------------------------------------------- giá
 
-async def price_history(client, symbol, max_pages=12):
-    """Khoảng 1 năm giao dịch gần nhất (CafeF giới hạn 30 dòng/trang). Trả về list tăng dần theo ngày."""
+EXCHANGES = {1: "HOSE", 2: "HNX", 9: "UPCOM", 8: "OTC"}
+COMPANY_LIST_URL = "https://cafefnew.mediacdn.vn/Search/company.json"
+_companies = {"t": 0.0, "data": None}
+
+
+async def company_list(client=None, ttl=86400):
+    """Danh sách mã của ô tìm kiếm CafeF: [{s, t, san}], lưu đệm 24 giờ."""
+    import time
+    if _companies["data"] and time.time() - _companies["t"] < ttl:
+        return _companies["data"]
+    own = client is None
+    client = client or make_client()
+    try:
+        r = await client.get(COMPANY_LIST_URL, headers={"Accept": "application/json"})
+        r.raise_for_status()
+        raw = r.json()
+    finally:
+        if own:
+            await client.aclose()
+    out = []
+    for x in raw:
+        sym = (x.get("Symbol") or "").strip().upper()
+        cid = x.get("CenterId")
+        if not sym or cid not in (1, 2, 9):      # bỏ OTC / chưa niêm yết
+            continue
+        out.append({"s": sym, "t": (x.get("Title") or "").strip(), "san": EXCHANGES[cid]})
+    out.sort(key=lambda x: (len(x["s"]), x["s"]))
+    _companies.update(t=time.time(), data=out)
+    return out
+
+
+async def _price_rows(client, symbol, exchange, max_pages):
     url = AJAX + "/DataHistory/PriceHistory.ashx"
-    rows, total = [], None
+    rows = []
     for page in range(1, max_pages + 1):
         j = await _get_json(client, url, {
-            "Symbol": symbol, "StartDate": "", "EndDate": "", "PageIndex": page, "PageSize": 30,
+            "ExchangeType": exchange, "Symbol": symbol, "StartDate": "", "EndDate": "",
+            "PageIndex": page, "PageSize": 30,
         })
         data = (j or {}).get("Data") or {}
         total = data.get("TotalCount") or 0
         chunk = data.get("Data") or []
         rows.extend(chunk)
         if not chunk or len(rows) >= total:
+            break
+    return rows
+
+
+async def price_history(client, symbol, exchange=None, max_pages=12):
+    """Khoảng 1 năm giao dịch gần nhất (CafeF giới hạn 30 dòng/trang). Trả về list tăng dần theo ngày.
+    HNX và UPCoM bắt buộc truyền ExchangeType; nếu chưa biết sàn thì thử lần lượt."""
+    rows = []
+    tried = [exchange] if exchange else []
+    tried += [e for e in ("HOSE", "HNX", "UPCOM") if e not in tried]
+    for ex in tried:
+        rows = await _price_rows(client, symbol, ex, max_pages)
+        if rows:
             break
     if not rows:
         raise CafeFError(f"Không có dữ liệu giá cho mã {symbol}")
@@ -237,8 +281,14 @@ def cash_dividend_rate(evts, today=None):
 async def fetch_all(symbol):
     symbol = symbol.upper()
     async with make_client() as c:
+        exchange = None
+        try:
+            comp = next((x for x in await company_list(c) if x["s"] == symbol), None)
+            exchange = comp["san"] if comp else None
+        except (httpx.HTTPError, ValueError):
+            comp = None
         bars, rt, inc, bs, rat, evts = await asyncio.gather(
-            price_history(c, symbol),
+            price_history(c, symbol, exchange),
             realtime_price(c, symbol),
             finance_report(c, symbol, 1, 20),
             finance_report(c, symbol, 2, 4),
@@ -251,5 +301,5 @@ async def fetch_all(symbol):
                 mi = await minority_interest(c, symbol, bs[0]["year"], bs[0]["quarter"])
             except httpx.HTTPError:
                 mi = None
-    return {"bars": bars, "realtime": rt, "income": inc, "balance": bs,
+    return {"company": comp, "bars": bars, "realtime": rt, "income": inc, "balance": bs,
             "ratios": rat, "events": evts, "minority_vnd": mi}

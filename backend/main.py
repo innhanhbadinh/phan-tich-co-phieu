@@ -90,6 +90,8 @@ def build(symbol, raw):
 
     return {
         "ma": symbol,
+        "ten": (raw.get("company") or {}).get("t"),
+        "san": (raw.get("company") or {}).get("san"),
         "cap_nhat": datetime.now(cafef.VN_TZ).strftime("%H:%M %d/%m/%Y"),
         "dau_vao": {
             "lnst_4_quy": profit,
@@ -111,6 +113,15 @@ def build(symbol, raw):
         "canh_bao": warnings,
         "nguon": f"https://cafef.vn/du-lieu/{symbol.lower()}.chn",
     }
+
+
+@app.get("/api/symbols")
+async def symbols():
+    """Danh sách mã cho ô gợi ý tìm kiếm (HOSE, HNX, UPCoM) lấy từ CafeF."""
+    try:
+        return await cafef.company_list()
+    except (httpx.HTTPError, ValueError) as e:
+        raise HTTPException(502, f"Không lấy được danh sách mã từ CafeF: {type(e).__name__}")
 
 
 @app.get("/api/analyze/{symbol}")
