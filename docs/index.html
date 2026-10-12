@@ -21,7 +21,15 @@
   h1{font-size:20px;margin:0}
   form{display:flex;gap:8px}
   input,button{font:inherit}
-  #sym{width:140px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);text-transform:uppercase;font-weight:600;letter-spacing:.5px}
+  #sym{width:240px;max-width:60vw;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font-weight:600}
+  .sw{position:relative}
+  .sug{position:absolute;top:100%;right:0;z-index:30;width:min(440px,92vw);margin-top:4px;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.18);max-height:380px;overflow:auto}
+  .sug .it{display:flex;gap:10px;align-items:baseline;padding:8px 12px;cursor:pointer}
+  .sug .it.act,.sug .it:hover{background:var(--chip)}
+  .sug .it b{min-width:56px} .sug .it .n{flex:1;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sug .it .x{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 5px}
+  .sug .empty{padding:10px 12px;color:var(--muted);font-size:13px}
+  @media (max-width:760px){ .sug{right:auto;left:0} }
   button{padding:9px 16px;border:0;border-radius:8px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer}
   button:disabled{opacity:.6;cursor:wait}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
@@ -70,7 +78,10 @@
   <header>
     <h1>Phân tích &amp; định giá cổ phiếu <span class="muted" style="font-weight:400;font-size:14px">· dữ liệu CafeF</span></h1>
     <form id="f">
-      <input id="sym" placeholder="Mã CP" maxlength="10" autocomplete="off" value="FPT">
+      <div class="sw">
+        <input id="sym" placeholder="Mã CP hoặc tên công ty" autocomplete="off" spellcheck="false" value="FPT">
+        <div id="sug" class="sug hidden"></div>
+      </div>
       <button id="go">Phân tích</button>
     </form>
   </header>
@@ -325,7 +336,7 @@ function render(d) {
   $("i_price").value = Math.round(iv.thi_gia);
   $("i_shares").value = iv.so_cp_trieu.toFixed(2);
   recalc();
-  $("upd").textContent = `${d.ma} · cập nhật ${d.cap_nhat} · BCTC ${iv.quy_bctc || ""}`;
+  $("upd").textContent = `${d.ma}${d.san ? " (" + d.san + ")" : ""}${d.ten ? " · " + d.ten : ""} · cập nhật ${d.cap_nhat} · BCTC ${iv.quy_bctc || ""}`;
   $("srcinfo").innerHTML = `Nguồn: <a href="${d.nguon}" target="_blank" rel="noopener">CafeF</a>.`;
   $("warns").innerHTML = (d.canh_bao || []).map(w => "⚠ " + w).join("<br>");
 
@@ -381,13 +392,29 @@ function render(d) {
   drawCharts(d);
 }
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+// Gọi API; nếu máy chủ Render miễn phí đang ngủ (lỗi mạng / 502-504) thì đợi và thử lại
+async function apiGet(path, label) {
+  for (let i = 1; i <= 8; i++) {
+    try {
+      const r = await fetch(API_BASE + path);
+      if (![502, 503, 504].includes(r.status)) return r;
+    } catch (e) { /* máy chủ chưa dậy */ }
+    if (label) setStatus(`${label} — máy chủ đang khởi động, thử lại lần ${i}/8…`);
+    await sleep(8000);
+  }
+  throw new Error("Máy chủ không phản hồi. Thử lại sau ít phút.");
+}
+
 async function analyze(sym) {
   sym = sym.trim().toUpperCase();
   if (!/^[A-Z0-9]{3,10}$/.test(sym)) { setStatus("Mã cổ phiếu không hợp lệ", true); return; }
+  $("sym").value = sym; hideSug();
   $("go").disabled = true;
-  setStatus(`Đang lấy dữ liệu ${sym} từ CafeF… (lần đầu có thể mất ~1 phút do máy chủ miễn phí đang khởi động)`);
+  const label = `Đang lấy dữ liệu ${sym} từ CafeF…`;
+  setStatus(label);
   try {
-    const r = await fetch(`${API_BASE}/api/analyze/${sym}`);
+    const r = await apiGet(`/api/analyze/${sym}`, label);
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.detail || `Lỗi ${r.status}`);
     $("out").classList.remove("hidden");  // hiện trước để biểu đồ đo được kích thước
@@ -399,7 +426,64 @@ async function analyze(sym) {
 }
 function setStatus(m, err) { $("status").textContent = m; $("status").className = err ? "err" : ""; }
 
-$("f").addEventListener("submit", e => { e.preventDefault(); analyze($("sym").value); });
+// ---- Gợi ý mã chứng khoán (danh sách từ ô tìm kiếm CafeF)
+let SYMS = [], sugItems = [], sugIdx = -1;
+const norm = s => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase();
+async function loadSymbols() {
+  try {
+    const r = await apiGet("/api/symbols");
+    if (r.ok) SYMS = (await r.json()).map(x => ({...x, ks: x.s.toLowerCase(), kt: norm(x.t)}));
+  } catch (e) { /* không có gợi ý vẫn gõ mã được */ }
+}
+function findSyms(q) {
+  q = norm(q.trim()); if (!q) return [];
+  const exact = [], pre = [], name = [];
+  for (const x of SYMS) {
+    if (x.ks === q) exact.push(x);
+    else if (x.ks.startsWith(q)) pre.push(x);
+    else if (q.length >= 2 && x.kt.includes(q)) name.push(x);
+  }
+  return exact.concat(pre, name).slice(0, 12);
+}
+function hideSug() { $("sug").classList.add("hidden"); sugIdx = -1; }
+function showSug() {
+  const q = $("sym").value;
+  sugItems = findSyms(q); sugIdx = sugItems.length ? 0 : -1;
+  if (!q.trim()) return hideSug();
+  $("sug").innerHTML = sugItems.length
+    ? sugItems.map((x, i) => `<div class="it${i === sugIdx ? " act" : ""}" data-s="${x.s}"><b>${x.s}</b><span class="n">${x.t}</span><span class="x">${x.san}</span></div>`).join("")
+    : `<div class="empty">${SYMS.length ? "Không tìm thấy mã phù hợp" : "Đang tải danh sách mã…"}</div>`;
+  $("sug").classList.remove("hidden");
+}
+function moveSug(step) {
+  if (!sugItems.length) return;
+  sugIdx = (sugIdx + step + sugItems.length) % sugItems.length;
+  [...$("sug").querySelectorAll(".it")].forEach((el, i) => el.classList.toggle("act", i === sugIdx));
+  $("sug").querySelectorAll(".it")[sugIdx].scrollIntoView({block: "nearest"});
+}
+$("sym").addEventListener("input", showSug);
+$("sym").addEventListener("focus", () => { if ($("sym").value.trim()) showSug(); });
+$("sym").addEventListener("blur", () => setTimeout(hideSug, 150));
+$("sym").addEventListener("keydown", e => {
+  if (e.key === "ArrowDown") { e.preventDefault(); moveSug(1); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); moveSug(-1); }
+  else if (e.key === "Escape") hideSug();
+});
+$("sug").addEventListener("mousedown", e => {
+  const it = e.target.closest(".it"); if (!it) return;
+  e.preventDefault(); analyze(it.dataset.s);
+});
+
+$("f").addEventListener("submit", e => {
+  e.preventDefault();
+  const open = !$("sug").classList.contains("hidden");
+  const v = $("sym").value.trim();
+  if (open && sugIdx >= 0 && sugItems[sugIdx]) return analyze(sugItems[sugIdx].s);
+  if (/^[A-Za-z0-9]{3,10}$/.test(v)) return analyze(v);
+  const m = findSyms(v);
+  if (m.length) analyze(m[0].s); else setStatus("Không tìm thấy mã phù hợp", true);
+});
+loadSymbols();  // tải danh sách mã, đồng thời "đánh thức" máy chủ Render
 const initial = location.hash.slice(1);
 if (initial) { $("sym").value = initial; analyze(initial); }
 </script>
