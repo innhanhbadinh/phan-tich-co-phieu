@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phân tích cổ phiếu</title>
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --muted:#6b7380; --line:#e3e6ea;
+    --accent:#1f5eff; --up:#0f9d58; --down:#d93025; --warn:#b26a00; --chip:#eef1f5;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#111418; --card:#1a1e24; --ink:#e7eaee; --muted:#9aa3ae; --line:#2b3139;
+           --accent:#6b93ff; --up:#34c77b; --down:#ff6b5e; --warn:#f0a63a; --chip:#232931; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:16px}
+  header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px}
+  h1{font-size:20px;margin:0}
+  form{display:flex;gap:8px}
+  input,button{font:inherit}
+  #sym{width:140px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);text-transform:uppercase;font-weight:600;letter-spacing:.5px}
+  button{padding:9px 16px;border:0;border-radius:8px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer}
+  button:disabled{opacity:.6;cursor:wait}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+  .card h2{font-size:16px;margin:0 0 12px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline}
+  .card h2 small{font-weight:400;color:var(--muted);font-size:13px}
+  .muted{color:var(--muted)} .up{color:var(--up)} .down{color:var(--down)} .warn{color:var(--warn)}
+  .grid{display:grid;gap:12px}
+  .g2{grid-template-columns:1fr 1fr} .g3{grid-template-columns:repeat(3,1fr)} .g4{grid-template-columns:repeat(4,1fr)} .g5{grid-template-columns:repeat(5,1fr)}
+  @media (max-width:760px){ .g2{grid-template-columns:1fr} .g3,.g4,.g5{grid-template-columns:1fr 1fr} }
+  .stat{background:var(--chip);border-radius:10px;padding:10px 12px}
+  .stat .k{font-size:12px;color:var(--muted)} .stat .v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+  .big .v{font-size:26px}
+  .grid > *{min-width:0}
+  label.in{display:flex;flex-direction:column;font-size:12px;color:var(--muted);gap:4px}
+  label.in input{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);font-size:15px;font-variant-numeric:tabular-nums}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;font-size:14px}
+  th:first-child,td:first-child{text-align:left}
+  th{font-weight:600;color:var(--muted);font-size:12px}
+  .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:var(--chip)}
+  .tag.buy{color:var(--up)} .tag.sell{color:var(--down)} .tag.over{color:var(--warn)}
+  .check{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)} .check:last-child{border:0}
+  .check .ic{font-weight:700;width:20px;flex:none}
+  .chart{width:100%;height:340px} .chart.sm{height:120px}
+  .legend{display:flex;gap:14px;font-size:12px;color:var(--muted);margin:4px 0 6px;flex-wrap:wrap}
+  .legend i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:4px}
+  ul.notes{margin:0;padding-left:18px} ul.notes li{margin:3px 0}
+  #status{padding:10px 0;color:var(--muted)} #status.err{color:var(--down)}
+  .hidden{display:none}
+  .disclaimer{font-size:12px;color:var(--muted);margin-top:6px}
+  .scroll{overflow-x:auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Phân tích &amp; định giá cổ phiếu <span class="muted" style="font-weight:400;font-size:14px">· dữ liệu CafeF</span></h1>
+    <form id="f">
+      <input id="sym" placeholder="Mã CP" maxlength="10" autocomplete="off" value="FPT">
+      <button id="go">Phân tích</button>
+    </form>
+  </header>
+  <div id="status"></div>
+
+  <div id="out" class="hidden">
+    <!-- ĐỊNH GIÁ -->
+    <section class="card">
+      <h2>Định giá CI Highest <small id="upd"></small></h2>
+      <div class="grid g5" style="margin-bottom:14px">
+        <label class="in">LNST 4 quý (tỷ đồng)<input id="i_profit" type="number" step="any"></label>
+        <label class="in">Vốn chủ sở hữu (tỷ đồng)<input id="i_equity" type="number" step="any"></label>
+        <label class="in">Tỷ lệ cổ tức tiền mặt (%)<input id="i_div" type="number" step="any"></label>
+        <label class="in">Thị giá (đồng/cp)<input id="i_price" type="number" step="any"></label>
+        <label class="in">Số CP lưu hành (triệu)<input id="i_shares" type="number" step="any"></label>
+      </div>
+      <div class="grid g3" style="margin-bottom:12px">
+        <div class="stat big"><div class="k">Giá trị thực</div><div class="v" id="o_value"></div></div>
+        <div class="stat big"><div class="k">Thị giá</div><div class="v" id="o_price"></div></div>
+        <div class="stat big"><div class="k">Giá trị thực sau 1 năm</div><div class="v" id="o_value1"></div></div>
+      </div>
+      <div class="grid g4">
+        <div class="stat"><div class="k">Lãi vốn (mua rẻ tài sản)</div><div class="v" id="o_laivon"></div></div>
+        <div class="stat"><div class="k">Dòng tiền thực (cổ tức)</div><div class="v" id="o_dongtien"></div></div>
+        <div class="stat"><div class="k">Tăng giá trị</div><div class="v" id="o_tanggt"></div></div>
+        <div class="stat"><div class="k">Tổng lợi ích</div><div class="v" id="o_tong"></div></div>
+      </div>
+      <p class="muted" style="font-size:13px;margin:10px 0 0">
+        Công thức: (Σ LNST 10 năm chiết khấu 7%/năm + Vốn chủ sở hữu) × (1 − 0,314) ÷ số cổ phiếu.
+        Bạn có thể sửa các ô phía trên, kết quả tính lại ngay. <span id="srcinfo"></span>
+      </p>
+      <div id="warns" class="warn" style="font-size:13px;margin-top:6px"></div>
+    </section>
+
+    <div class="grid g2">
+      <!-- CHẤT LƯỢNG -->
+      <section class="card">
+        <h2>Điều kiện doanh nghiệp tốt <small>theo sheet Hướng dẫn</small></h2>
+        <div id="quality"></div>
+      </section>
+      <!-- DỮ LIỆU ĐẦU VÀO -->
+      <section class="card">
+        <h2>Dữ liệu từ CafeF</h2>
+        <div id="detail"></div>
+      </section>
+    </div>
+
+    <!-- KỸ THUẬT -->
+    <section class="card">
+      <h2>Phân tích kỹ thuật <small id="trend"></small></h2>
+      <div class="grid g3" style="margin-bottom:12px">
+        <div class="stat"><div class="k">Tổng kết</div><div class="v" id="t_total"></div></div>
+        <div class="stat"><div class="k">Trung bình động</div><div class="v" id="t_ma"></div></div>
+        <div class="stat"><div class="k">Chỉ báo dao động</div><div class="v" id="t_osc"></div></div>
+      </div>
+      <div class="legend"><span><i style="background:#f5a623"></i>MA20</span><span><i style="background:#1f77b4"></i>MA50</span><span><i style="background:#9467bd"></i>MA200</span></div>
+      <div id="c_price" class="chart"></div>
+      <div class="legend">RSI(14)</div>
+      <div id="c_rsi" class="chart sm"></div>
+      <div class="legend">MACD(12,26,9)</div>
+      <div id="c_macd" class="chart sm"></div>
+      <h3 style="font-size:14px;margin:16px 0 6px">Nhận định</h3>
+      <ul class="notes" id="notes"></ul>
+    </section>
+
+    <div class="grid g2">
+      <section class="card scroll">
+        <h2>Chỉ báo kỹ thuật</h2>
+        <table id="t_ind"></table>
+      </section>
+      <section class="card scroll">
+        <h2>Trung bình động</h2>
+        <table id="t_mas"></table>
+      </section>
+    </div>
+    <section class="card scroll">
+      <h2>Hỗ trợ / kháng cự <small>pivot cổ điển phiên gần nhất</small></h2>
+      <table id="t_piv"></table>
+    </section>
+    <p class="disclaimer">Công cụ chỉ tính toán theo công thức và dữ liệu công khai từ CafeF, không phải khuyến nghị mua bán.
+      Dữ liệu có thể chậm hoặc sai lệch; hãy đối chiếu báo cáo tài chính gốc trước khi quyết định.</p>
+  </div>
+</div>
+
+<script>
+// ====== ĐỔI THÀNH ĐỊA CHỈ BACKEND TRÊN RENDER CỦA BẠN ======
+const API_BASE = "https://phan-tich-co-phieu.onrender.com";
+// ===========================================================
+
+const $ = id => document.getElementById(id);
+const fmt = (x, d = 0) => x == null || isNaN(x) ? "—" : Number(x).toLocaleString("vi-VN", {maximumFractionDigits: d, minimumFractionDigits: d});
+const pct = (x, d = 1) => x == null || isNaN(x) ? "—" : (x * 100).toLocaleString("vi-VN", {maximumFractionDigits: d, minimumFractionDigits: d}) + "%";
+const sign = (x) => x == null ? "" : x >= 0 ? "up" : "down";
+const tagClass = s => /Mua/.test(s) ? "buy" : /Bán/.test(s) ? "sell" : /Quá/.test(s) ? "over" : "";
+const tag = s => `<span class="tag ${tagClass(s)}">${s}</span>`;
+
+// ---- Công thức CI Highest (giống file Excel)
+const R = 0.07, HAIRCUT = 0.314;
+const pv10 = p => { let s = 0; for (let t = 1; t <= 10; t++) s += p / Math.pow(1 + R, t); return s; };
+const val = (p, e, n) => (pv10(p) + e) * (1 - HAIRCUT) * 1e9 / (n * 1e6);
+function ci(p, e, d, price, n) {
+  const v0 = val(p, e, n);
+  const retained = p - d * 10 * n;
+  const roe = e ? p / e : 0;
+  const v1 = val(p + roe * retained, e + retained, n);
+  const laivon = v0 / price - 1, dongtien = 0.95 * d * 10000 / price, tanggt = v1 / v0 - 1;
+  return {v0, v1, laivon, dongtien, tanggt, tong: laivon + dongtien + tanggt};
+}
+function recalc() {
+  const p = +$("i_profit").value, e = +$("i_equity").value, d = +$("i_div").value / 100,
+        price = +$("i_price").value, n = +$("i_shares").value;
+  if (!(n > 0 && price > 0)) return;
+  const r = ci(p, e, d, price, n);
+  $("o_value").textContent = fmt(r.v0); $("o_price").textContent = fmt(price); $("o_value1").textContent = fmt(r.v1);
+  for (const [id, x] of [["o_laivon", r.laivon], ["o_dongtien", r.dongtien], ["o_tanggt", r.tanggt], ["o_tong", r.tong]]) {
+    $(id).textContent = (x >= 0 ? "+" : "") + pct(x); $(id).className = "v " + sign(x);
+  }
+  $("o_value").className = "v " + (r.v0 >= price ? "up" : "down");
+}
+["i_profit", "i_equity", "i_div", "i_price", "i_shares"].forEach(id => $(id).addEventListener("input", recalc));
+
+// ---- Biểu đồ
+let charts = [];
+function makeChart(el, height) {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const c = LightweightCharts.createChart(el, {
+    height, autoSize: true,
+    layout: {background: {color: "transparent"}, textColor: dark ? "#9aa3ae" : "#6b7380", fontSize: 11},
+    grid: {vertLines: {color: dark ? "#2b3139" : "#eef0f3"}, horzLines: {color: dark ? "#2b3139" : "#eef0f3"}},
+    rightPriceScale: {borderVisible: false, minimumWidth: 70}, timeScale: {borderVisible: false},
+    localization: {locale: "vi-VN", priceFormatter: x => Math.round(x).toLocaleString("vi-VN")},
+    crosshair: {mode: 0},
+  });
+  charts.push(c); return c;
+}
+function drawCharts(d) {
+  charts.forEach(c => c.remove()); charts = [];
+  const s = d.ky_thuat.series || {};
+  const pc = makeChart($("c_price"), 340);
+  const candle = pc.addCandlestickSeries({upColor: "#0f9d58", downColor: "#d93025", borderVisible: false, wickUpColor: "#0f9d58", wickDownColor: "#d93025"});
+  candle.setData(d.nen);
+  const vol = pc.addHistogramSeries({priceScaleId: "vol", priceFormat: {type: "volume"}, lastValueVisible: false, priceLineVisible: false});
+  pc.priceScale("vol").applyOptions({scaleMargins: {top: 0.82, bottom: 0}});
+  vol.setData(d.nen.map(b => ({time: b.time, value: b.volume, color: b.close >= b.open ? "rgba(15,157,88,.35)" : "rgba(217,48,37,.35)"})));
+  for (const [k, col] of [["ma20", "#f5a623"], ["ma50", "#1f77b4"], ["ma200", "#9467bd"]]) {
+    const ls = pc.addLineSeries({color: col, lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false});
+    ls.setData(s[k] || []);
+  }
+  const rc = makeChart($("c_rsi"), 120);
+  const rs = rc.addLineSeries({color: "#9467bd", lineWidth: 1.5, priceLineVisible: false});
+  rs.setData(s.rsi || []);
+  for (const lv of [30, 70]) rs.createPriceLine({price: lv, color: "#999", lineStyle: 2, lineWidth: 1, axisLabelVisible: true});
+  rc.applyOptions({localization: {priceFormatter: x => x.toFixed(0)}});
+  const mc = makeChart($("c_macd"), 120);
+  mc.applyOptions({localization: {priceFormatter: x => Math.round(x).toLocaleString("vi-VN")}});
+  mc.addHistogramSeries({priceLineVisible: false, lastValueVisible: false})
+    .setData((s.macd_hist || []).map(p => ({...p, color: p.value >= 0 ? "rgba(15,157,88,.5)" : "rgba(217,48,37,.5)"})));
+  mc.addLineSeries({color: "#1f5eff", lineWidth: 1.5, priceLineVisible: false}).setData(s.macd || []);
+  mc.addLineSeries({color: "#f5a623", lineWidth: 1.5, priceLineVisible: false}).setData(s.macd_signal || []);
+  // đồng bộ khung thời gian 3 biểu đồ
+  let syncing = false;
+  charts.forEach(c => c.timeScale().subscribeVisibleLogicalRangeChange(r => {
+    if (syncing || !r) return; syncing = true;
+    charts.forEach(o => o !== c && o.timeScale().setVisibleLogicalRange(r)); syncing = false;
+  }));
+  requestAnimationFrame(() => pc.timeScale().fitContent());
+}
+
+// ---- Hiển thị
+function render(d) {
+  const iv = d.dau_vao;
+  $("i_profit").value = iv.lnst_4_quy.toFixed(1);
+  $("i_equity").value = iv.von_chu_so_huu.toFixed(1);
+  $("i_div").value = +(iv.ty_le_co_tuc * 100).toFixed(2);
+  $("i_price").value = Math.round(iv.thi_gia);
+  $("i_shares").value = iv.so_cp_trieu.toFixed(2);
+  recalc();
+  $("upd").textContent = `${d.ma} · cập nhật ${d.cap_nhat} · BCTC ${iv.quy_bctc || ""}`;
+  $("srcinfo").innerHTML = `Nguồn: <a href="${d.nguon}" target="_blank" rel="noopener">CafeF</a>.`;
+  $("warns").innerHTML = (d.canh_bao || []).map(w => "⚠ " + w).join("<br>");
+
+  $("quality").innerHTML = d.chat_luong.map(q => `
+    <div class="check"><span class="ic ${q.dat === true ? "up" : q.dat === false ? "down" : "muted"}">${q.dat === true ? "✓" : q.dat === false ? "✗" : "–"}</span>
+    <div><div>${q.ten}</div><div class="muted" style="font-size:13px">${q.ghi_chu || ""}</div></div></div>`).join("");
+
+  const ct = d.chi_tiet_dau_vao;
+  $("detail").innerHTML = `
+    <table>
+      <tr><th>Quý</th><th>LNST cổ đông công ty mẹ (tỷ)</th></tr>
+      ${ct.cac_quy.map(q => `<tr><td>${q.quy}</td><td>${fmt(q.lnst, 1)}</td></tr>`).join("")}
+      <tr><td><b>Cộng 4 quý</b></td><td><b>${fmt(iv.lnst_4_quy, 1)}</b></td></tr>
+    </table>
+    <table style="margin-top:10px">
+      <tr><td>Tổng vốn chủ sở hữu</td><td>${fmt(iv.tong_von_chu_so_huu, 1)} tỷ</td></tr>
+      <tr><td>− Lợi ích cổ đông không kiểm soát</td><td>${fmt(iv.loi_ich_thieu_so, 1)} tỷ</td></tr>
+      <tr><td><b>= VCSH cổ đông công ty mẹ</b></td><td><b>${fmt(iv.von_chu_so_huu, 1)} tỷ</b></td></tr>
+      <tr><td>EPS / P/E / P/B (CafeF)</td><td>${ct.eps ?? "—"} / ${ct.pe ?? "—"} / ${ct.pb ?? "—"}</td></tr>
+    </table>
+    <div class="muted" style="font-size:13px;margin-top:8px">Cổ tức tiền mặt 12 tháng:
+      ${ct.co_tuc.length ? ct.co_tuc.map(c => `${c.date.split("-").reverse().join("/")}: ${pct(c.rate, 0)}`).join(" · ") : "không có"}</div>`;
+
+  const t = d.ky_thuat;
+  if (t.loi) { $("trend").textContent = t.loi; return; }
+  $("trend").textContent = "Xu hướng: " + t.xu_huong;
+  const sm = t.tong_hop;
+  $("t_total").innerHTML = tag(sm.tong_ket);
+  $("t_ma").innerHTML = `${tag(sm.trung_binh_dong.danh_gia)} <span class="muted" style="font-size:13px">Mua ${sm.trung_binh_dong.mua} · Bán ${sm.trung_binh_dong.ban}</span>`;
+  $("t_osc").innerHTML = `${tag(sm.dao_dong.danh_gia)} <span class="muted" style="font-size:13px">Mua ${sm.dao_dong.mua} · Bán ${sm.dao_dong.ban}</span>`;
+  $("notes").innerHTML = t.nhan_dinh.map(n => `<li>${n}</li>`).join("");
+  $("t_ind").innerHTML = `<tr><th>Chỉ báo</th><th>Giá trị</th><th>Tín hiệu</th></tr>` +
+    t.chi_bao.map(x => `<tr><td>${x.ten}${x.ghi_chu ? `<div class="muted" style="font-size:12px">${x.ghi_chu}</div>` : ""}</td>
+      <td>${fmt(x.gia_tri, Math.abs(x.gia_tri) >= 1000 ? 0 : 2)}</td><td>${x.tin_hieu === "—" ? "—" : tag(x.tin_hieu)}</td></tr>`).join("");
+  $("t_mas").innerHTML = `<tr><th></th><th>Đơn giản</th><th></th><th>Lũy thừa</th><th></th></tr>` +
+    t.trung_binh_dong.map(m => `<tr><td>${m.ten}</td><td>${fmt(m.sma)}</td><td>${tag(m.tin_hieu_sma)}</td><td>${fmt(m.ema)}</td><td>${tag(m.tin_hieu_ema)}</td></tr>`).join("");
+  const p = t.pivot;
+  $("t_piv").innerHTML = `<tr><th></th><th>S3</th><th>S2</th><th>S1</th><th>Pivot</th><th>R1</th><th>R2</th><th>R3</th></tr>
+    <tr><td>Cổ điển</td>${["S3","S2","S1","P","R1","R2","R3"].map(k => `<td>${fmt(p[k])}</td>`).join("")}</tr>
+    <tr><td>Đáy / đỉnh 20 phiên</td><td colspan="3">${fmt(t.day_20_phien)}</td><td></td><td colspan="3">${fmt(t.dinh_20_phien)}</td></tr>
+    <tr><td>Đáy / đỉnh 1 năm</td><td colspan="3">${fmt(t.day_1_nam)}</td><td></td><td colspan="3">${fmt(t.dinh_1_nam)}</td></tr>` +
+    (t.bollinger ? `<tr><td>Bollinger(20,2)</td><td colspan="3">${fmt(t.bollinger.duoi)}</td><td>${fmt(t.bollinger.giua)}</td><td colspan="3">${fmt(t.bollinger.tren)}</td></tr>` : "");
+  drawCharts(d);
+}
+
+async function analyze(sym) {
+  sym = sym.trim().toUpperCase();
+  if (!/^[A-Z0-9]{3,10}$/.test(sym)) { setStatus("Mã cổ phiếu không hợp lệ", true); return; }
+  $("go").disabled = true;
+  setStatus(`Đang lấy dữ liệu ${sym} từ CafeF… (lần đầu có thể mất ~1 phút do máy chủ miễn phí đang khởi động)`);
+  try {
+    const r = await fetch(`${API_BASE}/api/analyze/${sym}`);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || `Lỗi ${r.status}`);
+    $("out").classList.remove("hidden");  // hiện trước để biểu đồ đo được kích thước
+    render(d); setStatus("");
+    history.replaceState(null, "", "#" + sym);
+  } catch (e) {
+    setStatus("Không phân tích được: " + e.message, true);
+  } finally { $("go").disabled = false; }
+}
+function setStatus(m, err) { $("status").textContent = m; $("status").className = err ? "err" : ""; }
+
+$("f").addEventListener("submit", e => { e.preventDefault(); analyze($("sym").value); });
+const initial = location.hash.slice(1);
+if (initial) { $("sym").value = initial; analyze(initial); }
+</script>
+</body>
+</html>
