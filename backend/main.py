@@ -81,6 +81,12 @@ def build(symbol, raw):
     val = ci_highest(profit, equity, div_rate, price, shares_m)
     quality = quality_checks(inc, profit, equity, val["lai_von"])
     tech = technical(bars, price)
+    q_by = {q["ten"]: q for q in quality}
+    ss_base = {
+        "tl_gop": q_by.get("Tỷ lệ lãi gộp > 15%", {}).get("gia_tri"),
+        "loi_nhuan_on_dinh": q_by.get("Lợi nhuận ổn định, tăng trưởng", {}).get("dat"),
+        "ky_thuat": tech.get("ss", {}),
+    }
 
     return {
         "ma": symbol,
@@ -99,6 +105,7 @@ def build(symbol, raw):
                              "eps": rat.get("EPScoBan"), "pe": rat.get("P/E"), "pb": rat.get("Beta")},
         "dinh_gia": val,
         "chat_luong": quality,
+        "tieu_chi_ss": ss_base,
         "ky_thuat": tech,
         "nen": bars,
         "canh_bao": warnings,

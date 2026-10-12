@@ -316,6 +316,14 @@ def technical(bars, price=None):
     vol20 = sum(v[-20:]) / min(20, len(v))
     vol_ratio = v[-1] / vol20 if vol20 else None
 
+    # OBV (On-Balance Volume) — dòng tiền theo khối lượng
+    obv = [0.0]
+    for i in range(1, len(c)):
+        obv.append(obv[-1] + (v[i] if c[i] > c[i - 1] else -v[i] if c[i] < c[i - 1] else 0))
+    obv_chg20 = obv[-1] - obv[-21] if len(obv) > 20 else None
+    prev = v[-80:-20] if len(v) > 40 else []
+    vol_prev = sum(prev) / len(prev) if prev else None
+
     # ---- Pivot cổ điển từ phiên gần nhất
     H, L, C = h[-1], l[-1], c[-1]
     P = (H + L + C) / 3
@@ -349,6 +357,98 @@ def technical(bars, price=None):
     tb = osc_buy + ma_buy
     ts = osc_sell + ma_sell
     summary["tong_ket"] = _rating(tb, ts, osc_total + ma_total)
+
+    # ---- 3 tiêu chí kỹ thuật cho sheet "SS Các Tiêu Chí"
+    long_ma = s200 or s50
+    if long_ma is None or s50 is None:
+        trend_ss = {"kq": "-", "ghi_chu": "Chưa đủ dữ liệu"}
+    else:
+        ma_name = "MA200" if s200 else "MA50"
+        if px > long_ma and s20 > s50:
+            k = "V"
+        elif px < long_ma and s20 < s50:
+            k = "X"
+        else:
+            k = "O"
+        trend_ss = {"kq": k, "ghi_chu": f"Giá {'>' if px > long_ma else '<'} {ma_name} ({long_ma:,.0f}); "
+                                         f"MA20 {'>' if s20 > s50 else '<'} MA50"}
+    tk = summary["tong_ket"]
+    buy_ss = {"kq": "V" if tk in ("Mua", "Mua mạnh") else "X" if tk in ("Bán", "Bán mạnh") else "O",
+              "ghi_chu": f"Tổng kết kỹ thuật: {tk}"}
+    if obv_chg20 is None or not vol_prev:
+        in_ss = {"kq": "-", "ghi_chu": "Chưa đủ dữ liệu"}
+    else:
+        vr = vol20 / vol_prev
+        k = "V" if obv_chg20 > 0 and vr >= 1 else "X" if obv_chg20 < 0 else "O"
+        in_ss = {"kq": k, "ghi_chu": f"OBV 20 phiên {'tăng' if obv_chg20 > 0 else 'giảm'}; "
+                                     f"KL TB 20 phiên = {vr:.2f} lần 60 phiên trước"}
+    ss = {"TREND": trend_ss, "BUY": buy_ss, "IN": in_ss}
+
+    # ---- KẾT LUẬN KỸ THUẬT: chấm điểm tổng hợp (-100 … +100)
+    pts, pros, cons = [], [], []
+
+    def add(score, maxw, text):
+        pts.append((score, maxw))
+        if score > 0:
+            pros.append(text)
+        elif score < 0:
+            cons.append(text)
+
+    A = _last(ad)
+    amp = 1.5 if A is not None and A > 25 else 1.0          # xu hướng mạnh → tăng trọng số xu hướng
+    tw = 2 * amp
+    if trend_ss["kq"] == "V":
+        add(tw, 3, f"Xu hướng tăng: {trend_ss['ghi_chu']}")
+    elif trend_ss["kq"] == "X":
+        add(-tw, 3, f"Xu hướng giảm: {trend_ss['ghi_chu']}")
+    else:
+        add(0, 3, "")
+    if ma_total:
+        s = (ma_buy - ma_sell) / ma_total * 2
+        add(s, 2, f"Giá nằm trên {ma_buy}/{ma_total} đường MA" if s > 0 else f"Giá nằm dưới {ma_sell}/{ma_total} đường MA")
+    if osc_total:
+        s = (osc_buy - osc_sell) / osc_total * 1.5
+        add(s, 1.5, f"Chỉ báo dao động: {osc_buy} mua / {osc_sell} bán")
+    mlv, msv = _last(ml), _last(ms)
+    hv = [x for x in mh if x is not None]
+    if mlv is not None and msv is not None:
+        add(1 if mlv > msv else -1, 1, "MACD nằm trên đường tín hiệu" if mlv > msv else "MACD nằm dưới đường tín hiệu")
+        if len(hv) >= 2:
+            up = hv[-1] > hv[-2]
+            add(0.5 if up else -0.5, 0.5, "Động lượng MACD đang cải thiện" if up else "Động lượng MACD đang yếu đi")
+    if r is not None:
+        if r < 30:
+            add(1, 1, f"RSI {r:.0f} quá bán — có thể hồi kỹ thuật")
+        elif r > 70:
+            add(-1, 1, f"RSI {r:.0f} quá mua — rủi ro điều chỉnh")
+        elif r >= 50:
+            add(0.5, 1, f"RSI {r:.0f} trên 50 — phe mua chiếm ưu thế")
+        else:
+            add(-0.5, 1, f"RSI {r:.0f} dưới 50 — phe bán chiếm ưu thế")
+    if in_ss["kq"] == "V":
+        add(1, 1, f"Dòng tiền vào: {in_ss['ghi_chu']}")
+    elif in_ss["kq"] == "X":
+        add(-1, 1, f"Dòng tiền ra: {in_ss['ghi_chu']}")
+    if bb:
+        if px < bb["duoi"]:
+            add(0.5, 0.5, "Giá dưới dải Bollinger dưới — vùng quá bán")
+        elif px > bb["tren"]:
+            add(-0.5, 0.5, "Giá trên dải Bollinger trên — vùng quá mua")
+    total_w = sum(w for _, w in pts) or 1
+    score = round(sum(s for s, _ in pts) / total_w * 100)
+    score = max(-100, min(100, score))
+    signal = ("MUA MẠNH" if score >= 40 else "MUA" if score >= 15 else
+              "BÁN MẠNH" if score <= -40 else "BÁN" if score <= -15 else "THEO DÕI")
+
+    below = [x for x in (pivots["S1"], pivots["S2"], lo20, bb and bb["duoi"], s50, s200) if x and x < px]
+    above = [x for x in (pivots["R1"], pivots["R2"], hi20, bb and bb["tren"], s50, s200) if x and x > px]
+    ket_luan = {
+        "diem": score, "tin_hieu": signal,
+        "ly_do_mua": pros, "ly_do_ban": cons,
+        "ho_tro": max(below) if below else None,     # None: giá đang dưới mọi mốc hỗ trợ
+        "khang_cu": min(above) if above else None,   # None: giá đang trên mọi mốc kháng cự
+        "adx_manh": A is not None and A > 25,
+    }
 
     # ---- Nhận định bằng lời (mô tả, không phải khuyến nghị)
     notes = [f"Xu hướng: {trend}."]
@@ -384,5 +484,5 @@ def technical(bars, price=None):
         "gia": px, "xu_huong": trend, "chi_bao": ind, "trung_binh_dong": mas,
         "tong_hop": summary, "pivot": pivots, "bollinger": bb, "kl_so_tb20": vol_ratio,
         "dinh_1_nam": hi52, "day_1_nam": lo52, "dinh_20_phien": hi20, "day_20_phien": lo20,
-        "nhan_dinh": notes, "series": series, "so_phien": len(bars),
+        "nhan_dinh": notes, "series": series, "so_phien": len(bars), "ss": ss, "ket_luan": ket_luan,
     }
