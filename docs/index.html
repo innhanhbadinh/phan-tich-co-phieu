@@ -43,6 +43,16 @@
   th{font-weight:600;color:var(--muted);font-size:12px}
   .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:var(--chip)}
   .tag.buy{color:var(--up)} .tag.sell{color:var(--down)} .tag.over{color:var(--warn)}
+  .mk{display:inline-block;min-width:26px;text-align:center;padding:2px 8px;border-radius:6px;font-weight:700;background:var(--chip)}
+  .mk.V{color:var(--up)} .mk.X{color:var(--down)} .mk.O{color:var(--warn)} .mk.na{color:var(--muted)}
+  .verdict{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  .verdict .sig{font-size:28px;font-weight:800;letter-spacing:.5px;padding:8px 18px;border-radius:10px;background:var(--chip)}
+  .verdict .sig.buy{color:var(--up)} .verdict .sig.sell{color:var(--down)} .verdict .sig.hold{color:var(--warn)}
+  .gauge{flex:1;min-width:220px}
+  .gauge .bar{position:relative;height:10px;border-radius:999px;background:linear-gradient(90deg,var(--down),var(--warn) 50%,var(--up))}
+  .gauge .pin{position:absolute;top:-5px;width:4px;height:20px;border-radius:2px;background:var(--ink);transform:translateX(-2px)}
+  .gauge .lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:6px}
+  ul.pc{margin:0;padding-left:18px} ul.pc li{margin:3px 0;font-size:14px}
   .check{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)} .check:last-child{border:0}
   .check .ic{font-weight:700;width:20px;flex:none}
   .chart{width:100%;height:340px} .chart.sm{height:120px}
@@ -93,6 +103,43 @@
         Bạn có thể sửa các ô phía trên, kết quả tính lại ngay. <span id="srcinfo"></span>
       </p>
       <div id="warns" class="warn" style="font-size:13px;margin-top:6px"></div>
+    </section>
+
+
+    <!-- KẾT LUẬN KỸ THUẬT -->
+    <section class="card">
+      <h2>Kết luận kỹ thuật <small>tổng hợp xu hướng, MA, dao động, MACD, RSI, dòng tiền</small></h2>
+      <div class="verdict">
+        <div class="sig" id="kl_sig"></div>
+        <div class="gauge">
+          <div class="bar"><div class="pin" id="kl_pin"></div></div>
+          <div class="lbl"><span>Bán mạnh −100</span><span>Theo dõi 0</span><span>+100 Mua mạnh</span></div>
+          <div style="margin-top:6px;font-size:14px">Điểm tổng hợp: <b id="kl_score"></b></div>
+        </div>
+        <div class="grid g2" style="min-width:260px">
+          <div class="stat"><div class="k">Hỗ trợ gần nhất</div><div class="v" id="kl_sup"></div></div>
+          <div class="stat"><div class="k">Kháng cự gần nhất</div><div class="v" id="kl_res"></div></div>
+        </div>
+      </div>
+      <div class="grid g2" style="margin-top:14px">
+        <div><div class="up" style="font-weight:600;margin-bottom:4px">Yếu tố ủng hộ MUA</div><ul class="pc" id="kl_pros"></ul></div>
+        <div><div class="down" style="font-weight:600;margin-bottom:4px">Yếu tố ủng hộ BÁN</div><ul class="pc" id="kl_cons"></ul></div>
+      </div>
+      <p class="muted" style="font-size:13px;margin:10px 0 0">Điểm ≥ +40: Mua mạnh · +15 đến +40: Mua · −15 đến +15: Theo dõi · −40 đến −15: Bán · ≤ −40: Bán mạnh.
+        Tín hiệu chỉ dựa trên chỉ báo kỹ thuật, nên đối chiếu thêm phần định giá và tiêu chí SS.</p>
+    </section>
+
+    <!-- TIÊU CHÍ SS -->
+    <section class="card scroll">
+      <h2>Tiêu chí SS <small>theo sheet "SS Các Tiêu Chí"</small></h2>
+      <div class="grid g3" style="margin-bottom:12px">
+        <div class="stat big"><div class="k">Số tiêu chí đạt (cột 9)</div><div class="v" id="ss_score"></div></div>
+        <div class="stat big"><div class="k">CORE</div><div class="v" id="ss_core"></div></div>
+        <div class="stat big"><div class="k">$$$ (Tổng lợi ích)</div><div class="v" id="ss_money"></div></div>
+      </div>
+      <table id="t_ss"></table>
+      <p class="muted" style="font-size:13px;margin:10px 0 0">V = đạt · X = không đạt · O = trung tính · – = không áp dụng / thiếu dữ liệu.
+        P/B, P/E, ROE, BEST tính lại theo các ô đầu vào phía trên.</p>
     </section>
 
     <div class="grid g2">
@@ -179,6 +226,45 @@ function recalc() {
     $(id).textContent = (x >= 0 ? "+" : "") + pct(x); $(id).className = "v " + sign(x);
   }
   $("o_value").className = "v " + (r.v0 >= price ? "up" : "down");
+  renderSS(r, p, e, price, n);
+}
+
+// ---- Tiêu chí sheet "SS Các Tiêu Chí"
+let lastData = null;
+const mk = k => `<span class="mk ${k === "-" ? "na" : k}">${k}</span>`;
+function renderSS(r, p, e, price, n) {
+  if (!lastData || !lastData.tieu_chi_ss) return;
+  const ss = lastData.tieu_chi_ss, kt = ss.ky_thuat || {};
+  const eps = p * 1e9 / (n * 1e6), bvps = e * 1e9 / (n * 1e6);
+  const pe = eps > 0 ? price / eps : null, pb = bvps > 0 ? price / bvps : null, roe = e ? p / e : null;
+  const yn = ok => ok == null ? "-" : ok ? "V" : "X";
+  const gmK = ss.tl_gop == null ? "-" : yn(ss.tl_gop >= 0.15);
+  const roeK = yn(roe != null && roe >= 0.07);
+  const coreParts = [gmK, roeK, ss.loi_nhuan_on_dinh == null ? "-" : yn(ss.loi_nhuan_on_dinh)];
+  const coreK = coreParts.includes("X") ? "X" : "V";
+  const bestK = yn(roe >= 0.20 && r.tong >= 0.50);
+  const rows = [
+    ["TL GỘP", ss.tl_gop == null ? "—" : pct(ss.tl_gop), "≥ 15%", gmK, ss.tl_gop == null ? "Không áp dụng cho ngân hàng / bảo hiểm / chứng khoán" : "Lãi gộp 4 quý gần nhất"],
+    ["ROE", pct(roe), "≥ 7%", roeK, roe >= 0.2 ? "Rất tốt (≥ 20%)" : ""],
+    ["P/B", pb == null ? "—" : fmt(pb, 2), "< 2", yn(pb != null && pb < 2), `Giá trị sổ sách ${fmt(bvps)} đ/cp`],
+    ["P/E", pe == null ? "—" : fmt(pe, 2), "≤ 10", yn(pe != null && pe <= 10), `EPS 4 quý ${fmt(eps)} đ/cp`],
+    ["CORE", "", "Đạt TL gộp + ROE + LN ổn định", coreK, "Theo sheet Hướng dẫn"],
+    ["Lãi vốn", pct(r.laivon), "", "", ""],
+    ["Dòng tiền", pct(r.dongtien), "", "", ""],
+    ["Tăng GTrị", pct(r.tanggt), "", "", ""],
+    ["$$$", pct(r.tong), "", "", "= Lãi vốn + Dòng tiền + Tăng GTrị"],
+    ["BEST", "", "ROE ≥ 20% và $$$ ≥ 50%", bestK, ""],
+    ["BUY", "", "Tổng kết kỹ thuật Mua / Mua mạnh", (kt.BUY || {}).kq || "-", (kt.BUY || {}).ghi_chu || ""],
+    ["IN", "", "OBV 20 phiên tăng, KL tăng", (kt.IN || {}).kq || "-", (kt.IN || {}).ghi_chu || ""],
+    ["TREND", "", "Giá > MA200 và MA20 > MA50", (kt.TREND || {}).kq || "-", (kt.TREND || {}).ghi_chu || ""],
+  ];
+  const nine = ["TL GỘP", "ROE", "P/B", "P/E", "CORE", "BEST", "BUY", "IN", "TREND"];
+  const passed = rows.filter(x => nine.includes(x[0]) && x[3] === "V").length;
+  $("ss_score").innerHTML = `<span class="${passed >= 7 ? "up" : passed <= 4 ? "down" : "warn"}">${passed}/9</span>`;
+  $("ss_core").innerHTML = mk(coreK);
+  $("ss_money").innerHTML = `<span class="${sign(r.tong)}">${(r.tong >= 0 ? "+" : "") + pct(r.tong)}</span>`;
+  $("t_ss").innerHTML = `<tr><th>Cột</th><th>Giá trị</th><th>Ngưỡng</th><th>Kết quả</th><th style="text-align:left">Ghi chú</th></tr>` +
+    rows.map(x => `<tr><td><b>${x[0]}</b></td><td>${x[1]}</td><td class="muted">${x[2]}</td><td>${x[3] ? mk(x[3]) : ""}</td><td class="muted" style="text-align:left;font-size:13px">${x[4]}</td></tr>`).join("");
 }
 ["i_profit", "i_equity", "i_div", "i_price", "i_shares"].forEach(id => $(id).addEventListener("input", recalc));
 
@@ -231,6 +317,7 @@ function drawCharts(d) {
 
 // ---- Hiển thị
 function render(d) {
+  lastData = d;
   const iv = d.dau_vao;
   $("i_profit").value = iv.lnst_4_quy.toFixed(1);
   $("i_equity").value = iv.von_chu_so_huu.toFixed(1);
@@ -265,6 +352,16 @@ function render(d) {
   const t = d.ky_thuat;
   if (t.loi) { $("trend").textContent = t.loi; return; }
   $("trend").textContent = "Xu hướng: " + t.xu_huong;
+  const kl = t.ket_luan;
+  if (kl) {
+    const cls = /MUA/.test(kl.tin_hieu) ? "buy" : /BÁN/.test(kl.tin_hieu) ? "sell" : "hold";
+    $("kl_sig").textContent = kl.tin_hieu; $("kl_sig").className = "sig " + cls;
+    $("kl_pin").style.left = ((kl.diem + 100) / 2) + "%";
+    $("kl_score").textContent = (kl.diem > 0 ? "+" : "") + kl.diem + " / 100";
+    $("kl_sup").textContent = fmt(kl.ho_tro); $("kl_res").textContent = fmt(kl.khang_cu);
+    $("kl_pros").innerHTML = kl.ly_do_mua.length ? kl.ly_do_mua.map(x => `<li>${x}</li>`).join("") : '<li class="muted">Không có</li>';
+    $("kl_cons").innerHTML = kl.ly_do_ban.length ? kl.ly_do_ban.map(x => `<li>${x}</li>`).join("") : '<li class="muted">Không có</li>';
+  }
   const sm = t.tong_hop;
   $("t_total").innerHTML = tag(sm.tong_ket);
   $("t_ma").innerHTML = `${tag(sm.trung_binh_dong.danh_gia)} <span class="muted" style="font-size:13px">Mua ${sm.trung_binh_dong.mua} · Bán ${sm.trung_binh_dong.ban}</span>`;
