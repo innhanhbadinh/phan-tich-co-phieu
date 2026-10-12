@@ -8,28 +8,24 @@ docs/      → index.html, chạy trên GitHub Pages (Settings → Pages → /do
 ```
 
 - Web: https://innhanhbadinh.github.io/phan-tich-co-phieu/
-- API: https://phan-tich-co-phieu.onrender.com/api/analyze/FPT
+- API: https://phan-tich-co-phieu-api.onrender.com/api/analyze/FPT
 
-## 1. Deploy backend lên Render
+## Cách deploy đang dùng
 
-1. Tạo repo GitHub mới (ví dụ `phan-tich-co-phieu-api`), kéo-thả 5 file trong thư mục `backend/` vào repo.
-2. Vào Render → **New → Web Service** → chọn repo vừa tạo.
-3. Điền:
-   - Runtime: **Python**
-   - Build Command: `pip install -r requirements.txt`
-   - Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-   - Plan: Free
-4. Deploy xong, mở `https://<tên-service>.onrender.com/api/analyze/FPT` để kiểm tra — phải ra JSON.
+- **Render** (service `phan-tich-co-phieu-api`, Python 3, Free, Singapore): Root Directory `backend`,
+  Build `pip install -r requirements.txt`, Start `uvicorn main:app --host 0.0.0.0 --port $PORT`.
+  Mỗi lần commit file trong `backend/` Render tự deploy lại.
+- **GitHub Pages**: Settings → Pages → nhánh `main`, thư mục `/docs`.
+  `API_BASE` trong `docs/index.html` trỏ tới địa chỉ Render ở trên.
 
-## 2. Deploy giao diện lên GitHub Pages
+## Các phần trên trang
 
-1. Mở `frontend/index.html`, sửa dòng:
-   ```js
-   const API_BASE = "https://phan-tich-co-phieu.onrender.com";
-   ```
-   thành địa chỉ Render của bạn (không có dấu `/` ở cuối).
-2. Kéo-thả `index.html` vào repo GitHub Pages (repo cũ hoặc repo mới), bật Pages.
-3. Mở trang, gõ mã cổ phiếu → **Phân tích**. Có thể mở thẳng `.../index.html#HPG`.
+1. **Định giá CI Highest** — giống file Excel, sửa được đầu vào.
+2. **Kết luận kỹ thuật** — điểm −100…+100 tổng hợp xu hướng, MA, chỉ báo dao động, MACD, RSI, ADX, OBV, Bollinger
+   → Mua mạnh / Mua / Theo dõi / Bán / Bán mạnh, kèm lý do và hỗ trợ/kháng cự gần nhất.
+3. **Tiêu chí SS** — theo sheet "SS Các Tiêu Chí": TL gộp ≥ 15%, ROE ≥ 7%, P/B < 2, P/E ≤ 10, CORE,
+   BEST (ROE ≥ 20% và $$$ ≥ 50%), BUY, IN, TREND → số tiêu chí đạt /9.
+4. Điều kiện doanh nghiệp tốt, dữ liệu CafeF, biểu đồ và bảng chỉ báo.
 
 ## Dữ liệu lấy từ CafeF
 
