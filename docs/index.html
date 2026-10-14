@@ -49,7 +49,7 @@
   th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;font-size:14px}
   th:first-child,td:first-child{text-align:left}
   th{font-weight:600;color:var(--muted);font-size:12px}
-  .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:var(--chip)}
+  .tag{display:inline-block;white-space:nowrap;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:var(--chip)}
   .tag.buy{color:var(--up)} .tag.sell{color:var(--down)} .tag.over{color:var(--warn)}
   .mk{display:inline-block;min-width:26px;text-align:center;padding:2px 8px;border-radius:6px;font-weight:700;background:var(--chip)}
   .mk.V{color:var(--up)} .mk.X{color:var(--down)} .mk.O{color:var(--warn)} .mk.na{color:var(--muted)}
@@ -60,6 +60,11 @@
   .gauge .bar{position:relative;height:10px;border-radius:999px;background:linear-gradient(90deg,var(--down),var(--warn) 50%,var(--up))}
   .gauge .pin{position:absolute;top:-5px;width:4px;height:20px;border-radius:2px;background:var(--ink);transform:translateX(-2px)}
   .gauge .lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:6px}
+  .grp .k b{color:var(--ink);font-weight:600}
+  .grp .mini{position:relative;height:6px;border-radius:999px;background:var(--line);margin:8px 0 6px;overflow:hidden}
+  .grp .mini span{position:absolute;top:0;bottom:0}
+  .kl-warn{font-size:13px;color:var(--warn);margin-top:8px}
+  tr.gh td{background:var(--chip);font-weight:700;font-size:13px}
   ul.pc{margin:0;padding-left:18px} ul.pc li{margin:3px 0;font-size:14px}
   .check{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)} .check:last-child{border:0}
   .check .ic{font-weight:700;width:20px;flex:none}
@@ -119,7 +124,7 @@
 
     <!-- KẾT LUẬN KỸ THUẬT -->
     <section class="card">
-      <h2>Kết luận kỹ thuật <small>tổng hợp xu hướng, MA, dao động, MACD, RSI, dòng tiền</small></h2>
+      <h2>Kết luận kỹ thuật <small>Khối lượng 50% · MACD 30% · RSI 20%</small></h2>
       <div class="verdict">
         <div class="sig" id="kl_sig"></div>
         <div class="gauge">
@@ -132,12 +137,15 @@
           <div class="stat"><div class="k">Kháng cự gần nhất</div><div class="v" id="kl_res"></div></div>
         </div>
       </div>
+      <div class="grid g3" id="kl_groups" style="margin-top:14px"></div>
+      <div class="kl-warn" id="kl_warn"></div>
       <div class="grid g2" style="margin-top:14px">
         <div><div class="up" style="font-weight:600;margin-bottom:4px">Yếu tố ủng hộ MUA</div><ul class="pc" id="kl_pros"></ul></div>
         <div><div class="down" style="font-weight:600;margin-bottom:4px">Yếu tố ủng hộ BÁN</div><ul class="pc" id="kl_cons"></ul></div>
       </div>
       <p class="muted" style="font-size:13px;margin:10px 0 0">Điểm ≥ +40: Mua mạnh · +15 đến +40: Mua · −15 đến +15: Theo dõi · −40 đến −15: Bán · ≤ −40: Bán mạnh.
-        Tín hiệu chỉ dựa trên chỉ báo kỹ thuật, nên đối chiếu thêm phần định giá và tiêu chí SS.</p>
+        Khối lượng là tín hiệu chính: tín hiệu MACD/RSI không có KL xác nhận được tính yếu hơn; mã thanh khoản dưới 1 tỷ đ/phiên bị giảm 40% điểm.
+        Nên đối chiếu thêm phần định giá và tiêu chí SS.</p>
     </section>
 
     <!-- TIÊU CHÍ SS -->
@@ -170,23 +178,25 @@
     <section class="card">
       <h2>Phân tích kỹ thuật <small id="trend"></small></h2>
       <div class="grid g3" style="margin-bottom:12px">
-        <div class="stat"><div class="k">Tổng kết</div><div class="v" id="t_total"></div></div>
-        <div class="stat"><div class="k">Trung bình động</div><div class="v" id="t_ma"></div></div>
-        <div class="stat"><div class="k">Chỉ báo dao động</div><div class="v" id="t_osc"></div></div>
+        <div class="stat"><div class="k">Giá trị GD TB 20 phiên</div><div class="v" id="t_gtgd"></div></div>
+        <div class="stat"><div class="k">KL phiên gần nhất / TB20</div><div class="v" id="t_vr1"></div></div>
+        <div class="stat"><div class="k">KL TB 5 phiên / TB20</div><div class="v" id="t_vr5"></div></div>
       </div>
       <div class="legend"><span><i style="background:#f5a623"></i>MA20</span><span><i style="background:#1f77b4"></i>MA50</span><span><i style="background:#9467bd"></i>MA200</span></div>
       <div id="c_price" class="chart"></div>
-      <div class="legend">RSI(14)</div>
-      <div id="c_rsi" class="chart sm"></div>
-      <div class="legend">MACD(12,26,9)</div>
+      <div class="legend"><span><b>Khối lượng</b></span><span><i style="background:#1f5eff"></i>TB 20 phiên</span><span>cột đậm = KL ≥ 1,5 lần TB20</span></div>
+      <div id="c_vol" class="chart" style="height:150px"></div>
+      <div class="legend"><span><b>MACD(12,26,9)</b></span><span><i style="background:#1f5eff"></i>MACD</span><span><i style="background:#f5a623"></i>Tín hiệu</span></div>
       <div id="c_macd" class="chart sm"></div>
+      <div class="legend"><span><b>RSI(14)</b></span><span>vùng 30 – 70</span></div>
+      <div id="c_rsi" class="chart sm"></div>
       <h3 style="font-size:14px;margin:16px 0 6px">Nhận định</h3>
       <ul class="notes" id="notes"></ul>
     </section>
 
     <div class="grid g2">
       <section class="card scroll">
-        <h2>Chỉ báo kỹ thuật</h2>
+        <h2>Chỉ báo chính <small>Khối lượng · MACD · RSI</small></h2>
         <table id="t_ind"></table>
       </section>
       <section class="card scroll">
@@ -265,7 +275,7 @@ function renderSS(r, p, e, price, n) {
     ["Tăng GTrị", pct(r.tanggt), "", "", ""],
     ["$$$", pct(r.tong), "", "", "= Lãi vốn + Dòng tiền + Tăng GTrị"],
     ["BEST", "", "ROE ≥ 20% và $$$ ≥ 50%", bestK, ""],
-    ["BUY", "", "Tổng kết kỹ thuật Mua / Mua mạnh", (kt.BUY || {}).kq || "-", (kt.BUY || {}).ghi_chu || ""],
+    ["BUY", "", "Kết luận KL·MACD·RSI là Mua / Mua mạnh", (kt.BUY || {}).kq || "-", (kt.BUY || {}).ghi_chu || ""],
     ["IN", "", "OBV 20 phiên tăng, KL tăng", (kt.IN || {}).kq || "-", (kt.IN || {}).ghi_chu || ""],
     ["TREND", "", "Giá > MA200 và MA20 > MA50", (kt.TREND || {}).kq || "-", (kt.TREND || {}).ghi_chu || ""],
   ];
@@ -295,17 +305,27 @@ function makeChart(el, height) {
 }
 function drawCharts(d) {
   charts.forEach(c => c.remove()); charts = [];
-  const s = d.ky_thuat.series || {};
+  const s0 = d.ky_thuat.series || {};
+  // đệm các phiên chưa có giá trị (whitespace) để mọi khung có cùng trục thời gian
+  const times = d.nen.map(b => b.time);
+  const pad = arr => { const m = Object.fromEntries((arr || []).map(p => [p.time, p])); return times.map(t => m[t] || {time: t}); };
+  const s = Object.fromEntries(Object.entries(s0).map(([k, v]) => [k, pad(v)]));
   const pc = makeChart($("c_price"), 340);
   const candle = pc.addCandlestickSeries({upColor: "#0f9d58", downColor: "#d93025", borderVisible: false, wickUpColor: "#0f9d58", wickDownColor: "#d93025"});
   candle.setData(d.nen);
-  const vol = pc.addHistogramSeries({priceScaleId: "vol", priceFormat: {type: "volume"}, lastValueVisible: false, priceLineVisible: false});
-  pc.priceScale("vol").applyOptions({scaleMargins: {top: 0.82, bottom: 0}});
-  vol.setData(d.nen.map(b => ({time: b.time, value: b.volume, color: b.close >= b.open ? "rgba(15,157,88,.35)" : "rgba(217,48,37,.35)"})));
   for (const [k, col] of [["ma20", "#f5a623"], ["ma50", "#1f77b4"], ["ma200", "#9467bd"]]) {
     const ls = pc.addLineSeries({color: col, lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false});
     ls.setData(s[k] || []);
   }
+  // Khối lượng: tô đậm phiên KL >= 1,5 lần TB20
+  const vc = makeChart($("c_vol"), 150);
+  vc.applyOptions({localization: {priceFormatter: x => x >= 1e6 ? (x / 1e6).toLocaleString("vi-VN", {maximumFractionDigits: 1}) + "tr" : Math.round(x).toLocaleString("vi-VN")}});
+  const vma = Object.fromEntries((s0.vol_ma20 || []).map(p => [p.time, p.value]));
+  vc.addHistogramSeries({priceLineVisible: false, lastValueVisible: true}).setData(d.nen.map(b => {
+    const big = vma[b.time] && b.volume >= 1.5 * vma[b.time], up = b.close >= b.open;
+    return {time: b.time, value: b.volume, color: up ? (big ? "rgba(15,157,88,.95)" : "rgba(15,157,88,.35)") : (big ? "rgba(217,48,37,.95)" : "rgba(217,48,37,.35)")};
+  }));
+  vc.addLineSeries({color: "#1f5eff", lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false}).setData(s.vol_ma20 || []);
   const rc = makeChart($("c_rsi"), 120);
   const rs = rc.addLineSeries({color: "#9467bd", lineWidth: 1.5, priceLineVisible: false});
   rs.setData(s.rsi || []);
@@ -314,10 +334,10 @@ function drawCharts(d) {
   const mc = makeChart($("c_macd"), 120);
   mc.applyOptions({localization: {priceFormatter: x => Math.round(x).toLocaleString("vi-VN")}});
   mc.addHistogramSeries({priceLineVisible: false, lastValueVisible: false})
-    .setData((s.macd_hist || []).map(p => ({...p, color: p.value >= 0 ? "rgba(15,157,88,.5)" : "rgba(217,48,37,.5)"})));
+    .setData(s.macd_hist.map(p => p.value == null ? p : ({...p, color: p.value >= 0 ? "rgba(15,157,88,.5)" : "rgba(217,48,37,.5)"})));
   mc.addLineSeries({color: "#1f5eff", lineWidth: 1.5, priceLineVisible: false}).setData(s.macd || []);
   mc.addLineSeries({color: "#f5a623", lineWidth: 1.5, priceLineVisible: false}).setData(s.macd_signal || []);
-  // đồng bộ khung thời gian 3 biểu đồ
+  // đồng bộ khung thời gian các biểu đồ
   let syncing = false;
   charts.forEach(c => c.timeScale().subscribeVisibleLogicalRangeChange(r => {
     if (syncing || !r) return; syncing = true;
@@ -372,15 +392,31 @@ function render(d) {
     $("kl_sup").textContent = fmt(kl.ho_tro); $("kl_res").textContent = fmt(kl.khang_cu);
     $("kl_pros").innerHTML = kl.ly_do_mua.length ? kl.ly_do_mua.map(x => `<li>${x}</li>`).join("") : '<li class="muted">Không có</li>';
     $("kl_cons").innerHTML = kl.ly_do_ban.length ? kl.ly_do_ban.map(x => `<li>${x}</li>`).join("") : '<li class="muted">Không có</li>';
+    $("kl_warn").innerHTML = (kl.canh_bao || []).map(w => "⚠ " + w).join("<br>");
+    $("kl_groups").innerHTML = Object.values(kl.nhom || {}).map(g => {
+      const w = Math.abs(g.diem) / 2, col = g.diem >= 0 ? "var(--up)" : "var(--down)";
+      const bar = g.diem >= 0 ? `left:50%;width:${w}%` : `left:${50 - w}%;width:${w}%`;
+      return `<div class="stat grp"><div class="k"><b>${g.ten}</b> · trọng số ${g.trong_so}%</div>
+        <div class="mini"><span style="${bar};background:${col}"></span><span style="left:50%;width:1px;background:var(--muted)"></span></div>
+        <div>${tag(g.danh_gia)} <span class="muted" style="font-size:13px">${g.diem > 0 ? "+" : ""}${g.diem}</span></div></div>`;
+    }).join("");
+    $("t_gtgd").textContent = fmt(kl.gtgd_tb20, 1) + " tỷ";
+    $("t_gtgd").className = "v " + (kl.gtgd_tb20 < 1 ? "down" : "");
+    for (const [id, x] of [["t_vr1", kl.kl_so_tb20], ["t_vr5", kl.kl5_so_tb20]]) {
+      $(id).textContent = x == null ? "—" : fmt(x, 2) + " lần";
+      $(id).className = "v " + (x >= 1.5 ? "up" : x != null && x < 0.7 ? "muted" : "");
+    }
   }
-  const sm = t.tong_hop;
-  $("t_total").innerHTML = tag(sm.tong_ket);
-  $("t_ma").innerHTML = `${tag(sm.trung_binh_dong.danh_gia)} <span class="muted" style="font-size:13px">Mua ${sm.trung_binh_dong.mua} · Bán ${sm.trung_binh_dong.ban}</span>`;
-  $("t_osc").innerHTML = `${tag(sm.dao_dong.danh_gia)} <span class="muted" style="font-size:13px">Mua ${sm.dao_dong.mua} · Bán ${sm.dao_dong.ban}</span>`;
   $("notes").innerHTML = t.nhan_dinh.map(n => `<li>${n}</li>`).join("");
+  const fv = x => x.gia_tri == null ? "—" : x.don_vi === "x TB20" || x.don_vi === "lần" ? fmt(x.gia_tri, 2) + " lần"
+    : x.don_vi === "tỷ đ" ? fmt(x.gia_tri, 1) + " tỷ"
+    : x.don_vi === "cp" ? (x.gia_tri > 0 ? "+" : "") + fmt(x.gia_tri / 1e6, 1) + " tr cp" : x.don_vi === "phiên" ? (x.gia_tri > 0 ? "+" : "") + x.gia_tri
+    : fmt(x.gia_tri, Math.abs(x.gia_tri) >= 1000 ? 0 : 2);
+  let lastGrp = "";
   $("t_ind").innerHTML = `<tr><th>Chỉ báo</th><th>Giá trị</th><th>Tín hiệu</th></tr>` +
-    t.chi_bao.map(x => `<tr><td>${x.ten}${x.ghi_chu ? `<div class="muted" style="font-size:12px">${x.ghi_chu}</div>` : ""}</td>
-      <td>${fmt(x.gia_tri, Math.abs(x.gia_tri) >= 1000 ? 0 : 2)}</td><td>${x.tin_hieu === "—" ? "—" : tag(x.tin_hieu)}</td></tr>`).join("");
+    t.chi_bao.map(x => (x.nhom !== lastGrp ? `<tr class="gh"><td colspan="3">${lastGrp = x.nhom}</td></tr>` : "") +
+      `<tr><td>${x.ten}${x.ghi_chu ? `<div class="muted" style="font-size:12px">${x.ghi_chu}</div>` : ""}</td>
+      <td>${fv(x)}</td><td>${x.tin_hieu === "—" ? "—" : tag(x.tin_hieu)}</td></tr>`).join("");
   $("t_mas").innerHTML = `<tr><th></th><th>Đơn giản</th><th></th><th>Lũy thừa</th><th></th></tr>` +
     t.trung_binh_dong.map(m => `<tr><td>${m.ten}</td><td>${fmt(m.sma)}</td><td>${tag(m.tin_hieu_sma)}</td><td>${fmt(m.ema)}</td><td>${tag(m.tin_hieu_ema)}</td></tr>`).join("");
   const p = t.pivot;
