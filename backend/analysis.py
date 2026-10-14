@@ -239,6 +239,206 @@ def _rating(buy, sell, total):
     return "Trung tính"
 
 
+def _clamp(x, lo=-1.0, hi=1.0):
+    return max(lo, min(hi, x))
+
+
+def _group_rating(score):
+    """score -100..100 -> nhãn"""
+    return ("Mua mạnh" if score >= 40 else "Mua" if score >= 15 else
+            "Bán mạnh" if score <= -40 else "Bán" if score <= -15 else "Trung tính")
+
+
+def core_signals(c, v, ml, ms, mh, rs):
+    """Chấm điểm 3 nhóm chỉ báo chính: Khối lượng (50%), MACD (30%), RSI (20%).
+    Mỗi nhóm cho điểm -100..+100; trả thêm danh sách chi tiết và lý do."""
+    n = len(c)
+    out = {}
+
+    # ================= KHỐI LƯỢNG / THANH KHOẢN =================
+    vd, vpros, vcons = [], [], []
+    vma = sum(v[-21:-1]) / 20 if n > 21 else (sum(v) / n if n else 0)   # TB 20 phiên trước phiên gần nhất
+    chg = c[-1] / c[-2] - 1 if n > 1 and c[-2] else 0.0
+    vr1 = v[-1] / vma if vma else None
+    vr5 = (sum(v[-5:]) / 5) / vma if vma and n >= 5 else None
+    gtgd20 = sum(a * b for a, b in zip(v[-20:], c[-20:])) / min(20, n) / 1e9   # tỷ đồng / phiên
+    prev60 = v[-80:-20]
+    liq_trend = (sum(v[-20:]) / 20) / (sum(prev60) / len(prev60)) if len(prev60) >= 20 and sum(prev60) else None
+
+    # a) Phiên gần nhất: giá + khối lượng
+    a = 0.0
+    if vr1 is not None:
+        if chg > 0:
+            a = 1.0 if vr1 >= 1.5 else 0.6 if vr1 >= 1.0 else 0.2 if vr1 >= 0.7 else 0.0
+            txt = (f"Phiên gần nhất tăng {chg:+.1%} với KL {vr1:.1f} lần TB20"
+                   + (" — tiền vào mạnh (KL đột biến)" if vr1 >= 1.5 else
+                      " — có KL xác nhận" if vr1 >= 1.0 else " — KL thấp, lực mua chưa thuyết phục"))
+        elif chg < 0:
+            a = -1.0 if vr1 >= 1.5 else -0.6 if vr1 >= 1.0 else -0.2 if vr1 >= 0.7 else 0.0
+            txt = (f"Phiên gần nhất giảm {chg:+.1%} với KL {vr1:.1f} lần TB20"
+                   + (" — bán tháo / phân phối mạnh" if vr1 >= 1.5 else
+                      " — áp lực bán có KL" if vr1 >= 1.0 else " — KL thấp, lực bán yếu (có thể cạn cung)"))
+        else:
+            txt = f"Phiên gần nhất đứng giá, KL {vr1:.1f} lần TB20"
+        vd.append({"ten": "Giá & KL phiên gần nhất", "gia_tri": vr1, "don_vi": "x TB20",
+                   "tin_hieu": "Mua" if a > 0.3 else "Bán" if a < -0.3 else "Trung tính", "ghi_chu": txt})
+        (vpros if a > 0.3 else vcons if a < -0.3 else []).append(txt)
+
+    # b) Ngày tích lũy / phân phối trong 10 phiên
+    acc = dis = 0
+    for i in range(max(1, n - 10), n):
+        if vma and v[i] > vma:
+            if c[i] > c[i - 1]:
+                acc += 1
+            elif c[i] < c[i - 1]:
+                dis += 1
+    b = _clamp((acc - dis) / 4)
+    txt = f"10 phiên: {acc} phiên tăng có KL lớn (tích lũy), {dis} phiên giảm có KL lớn (phân phối)"
+    vd.append({"ten": "Tích lũy / phân phối 10 phiên", "gia_tri": acc - dis, "don_vi": "phiên",
+               "tin_hieu": "Mua" if b > 0.2 else "Bán" if b < -0.2 else "Trung tính", "ghi_chu": txt})
+    if b > 0.2:
+        vpros.append(txt)
+    elif b < -0.2:
+        vcons.append(txt)
+
+    # c) OBV: hướng dòng tiền và phân kỳ với giá
+    obv = [0.0]
+    for i in range(1, n):
+        obv.append(obv[-1] + (v[i] if c[i] > c[i - 1] else -v[i] if c[i] < c[i - 1] else 0))
+    cobv = 0.0
+    if n > 21:
+        obv_up = obv[-1] > obv[-21]
+        px_up = c[-1] > c[-21]
+        obv_ma = sum(obv[-20:]) / 20
+        if obv_up and not px_up:
+            cobv, txt = 1.0, "Phân kỳ dương: giá giảm 20 phiên nhưng OBV tăng — dòng tiền vào ngầm"
+        elif not obv_up and px_up:
+            cobv, txt = -1.0, "Phân kỳ âm: giá tăng 20 phiên nhưng OBV giảm — dòng tiền rút ra"
+        elif obv_up:
+            cobv = 0.8 if obv[-1] > obv_ma else 0.4
+            txt = "OBV tăng 20 phiên — dòng tiền vào cùng chiều giá"
+        else:
+            cobv = -0.8 if obv[-1] < obv_ma else -0.4
+            txt = "OBV giảm 20 phiên — dòng tiền ra cùng chiều giá"
+        vd.append({"ten": "OBV (dòng tiền) 20 phiên", "gia_tri": obv[-1] - obv[-21], "don_vi": "cp",
+                   "tin_hieu": "Mua" if cobv > 0 else "Bán", "ghi_chu": txt})
+        (vpros if cobv > 0 else vcons).append(txt)
+
+    # d) Thanh khoản
+    if liq_trend is not None:
+        vd.append({"ten": "Thanh khoản 20 phiên so với 60 phiên trước", "gia_tri": liq_trend, "don_vi": "lần",
+                   "tin_hieu": "—", "ghi_chu": "Thanh khoản đang " + ("tăng" if liq_trend >= 1.1 else
+                                                                     "giảm" if liq_trend <= 0.9 else "ổn định")})
+    vd.append({"ten": "Giá trị giao dịch TB 20 phiên", "gia_tri": gtgd20, "don_vi": "tỷ đ",
+               "tin_hieu": "—", "ghi_chu": "Thanh khoản thấp — khó mua bán, tín hiệu kỹ thuật kém tin cậy"
+               if gtgd20 < 1 else "Thanh khoản trung bình" if gtgd20 < 10 else "Thanh khoản tốt"})
+
+    vol_score = round((0.35 * a + 0.35 * b + 0.30 * cobv) * 100)
+    out["khoi_luong"] = {"ten": "Khối lượng", "trong_so": 50, "diem": vol_score,
+                         "danh_gia": _group_rating(vol_score), "chi_tiet": vd, "pros": vpros, "cons": vcons}
+
+    # ================= MACD =================
+    md, mpros, mcons = [], [], []
+    mlv, msv = _last(ml), _last(ms)
+    hv = [x for x in mh if x is not None]
+    macd_score = 0
+    if mlv is not None and msv is not None and len(hv) >= 4:
+        # tìm điểm cắt trong 5 phiên gần nhất
+        cross, ago = 0, None
+        for k in range(1, min(6, len(hv))):
+            if hv[-k] > 0 >= hv[-k - 1]:
+                cross, ago = 1, k - 1
+                break
+            if hv[-k] < 0 <= hv[-k - 1]:
+                cross, ago = -1, k - 1
+                break
+        if cross:
+            i_cross = n - 1 - ago
+            vconf = vma and v[i_cross] >= vma
+            base = (0.8 if vconf else 0.5) * cross
+            when = "phiên gần nhất" if ago == 0 else f"{ago} phiên trước"
+            txt = (f"MACD vừa cắt {'lên' if cross > 0 else 'xuống'} đường tín hiệu ({when})"
+                   + (" — có KL xác nhận" if vconf else " — KL chưa xác nhận"))
+        else:
+            base = 0.5 if mlv > msv else -0.5
+            txt = f"MACD nằm {'trên' if mlv > msv else 'dưới'} đường tín hiệu"
+        md.append({"ten": "MACD so với đường tín hiệu", "gia_tri": mlv - msv, "don_vi": "",
+                   "tin_hieu": "Mua" if base > 0 else "Bán", "ghi_chu": txt + f" (MACD {mlv:,.0f} / tín hiệu {msv:,.0f})"})
+        (mpros if base > 0 else mcons).append(txt)
+
+        rising = hv[-1] > hv[-2] > hv[-3]
+        falling = hv[-1] < hv[-2] < hv[-3]
+        hscore = 0.3 if rising else -0.3 if falling else 0.0
+        txt = ("Histogram tăng 3 phiên — động lượng cải thiện" if rising else
+               "Histogram giảm 3 phiên — động lượng suy yếu" if falling else "Histogram đi ngang")
+        md.append({"ten": "Histogram MACD", "gia_tri": hv[-1], "don_vi": "",
+                   "tin_hieu": "Mua" if hscore > 0 else "Bán" if hscore < 0 else "Trung tính", "ghi_chu": txt})
+        if hscore > 0:
+            mpros.append(txt)
+        elif hscore < 0:
+            mcons.append(txt)
+
+        zscore = 0.2 if mlv > 0 else -0.2
+        txt = "MACD trên 0 — xu hướng trung hạn tăng" if mlv > 0 else "MACD dưới 0 — xu hướng trung hạn giảm"
+        md.append({"ten": "MACD so với đường 0", "gia_tri": mlv, "don_vi": "",
+                   "tin_hieu": "Mua" if zscore > 0 else "Bán", "ghi_chu": txt})
+        macd_score = round(_clamp(base + hscore + zscore) * 100)
+    out["macd"] = {"ten": "MACD", "trong_so": 30, "diem": macd_score,
+                   "danh_gia": _group_rating(macd_score), "chi_tiet": md, "pros": mpros, "cons": mcons}
+
+    # ================= RSI =================
+    rd, rpros, rcons = [], [], []
+    rv = [x for x in rs if x is not None]
+    rsi_score = 0
+    if len(rv) >= 4:
+        r, rp = rv[-1], rv[-2]
+        if rp < 30 <= r:
+            sc, txt = 1.0, f"RSI {r:.1f} vừa thoát vùng quá bán — tín hiệu hồi phục"
+        elif r < 30:
+            sc, txt = 0.6, f"RSI {r:.1f} quá bán — có thể hồi kỹ thuật (cần KL xác nhận)"
+        elif rp > 70 >= r:
+            sc, txt = -1.0, f"RSI {r:.1f} vừa rời vùng quá mua — rủi ro điều chỉnh"
+        elif r > 70:
+            sc, txt = -0.6, f"RSI {r:.1f} quá mua — rủi ro điều chỉnh"
+        elif min(rv[-4:-1]) < 50 <= r:
+            sc, txt = 0.5, f"RSI {r:.1f} vừa vượt lên 50 — phe mua chiếm ưu thế"
+        elif max(rv[-4:-1]) >= 50 > r:
+            sc, txt = -0.5, f"RSI {r:.1f} vừa thủng 50 — phe bán chiếm ưu thế"
+        elif r >= 50:
+            sc, txt = 0.25, f"RSI {r:.1f} trên 50 — phe mua nhỉnh hơn"
+        else:
+            sc, txt = -0.25, f"RSI {r:.1f} dưới 50 — phe bán nhỉnh hơn"
+        rd.append({"ten": "RSI(14)", "gia_tri": r, "don_vi": "",
+                   "tin_hieu": "Quá bán" if r < 30 else "Quá mua" if r > 70 else "Mua" if sc > 0 else "Bán",
+                   "ghi_chu": txt})
+        (rpros if sc > 0 else rcons).append(txt)
+        rsi_score = round(sc * 100)
+    rlabel = _group_rating(rsi_score)
+    if rv and rv[-1] < 30:
+        rlabel = "Quá bán"
+    elif rv and rv[-1] > 70:
+        rlabel = "Quá mua"
+    out["rsi"] = {"ten": "RSI", "trong_so": 20, "diem": rsi_score,
+                  "danh_gia": rlabel, "chi_tiet": rd, "pros": rpros, "cons": rcons}
+
+    # ================= TỔNG HỢP =================
+    total = 0.5 * vol_score + 0.3 * macd_score + 0.2 * rsi_score
+    pros = vpros + mpros + rpros
+    cons = vcons + mcons + rcons
+    warn = []
+    # MACD/RSI tích cực nhưng dòng tiền không xác nhận
+    if (macd_score > 0 or rsi_score > 0) and vol_score < 0:
+        warn.append("Tín hiệu MACD/RSI tích cực nhưng chưa được khối lượng xác nhận")
+    if gtgd20 < 1:
+        total *= 0.6
+        warn.append(f"Thanh khoản thấp (~{gtgd20:,.2f} tỷ đ/phiên): tín hiệu bị giảm 40% độ tin cậy")
+    score = int(round(max(-100, min(100, total))))
+    signal = ("MUA MẠNH" if score >= 40 else "MUA" if score >= 15 else
+              "BÁN MẠNH" if score <= -40 else "BÁN" if score <= -15 else "THEO DÕI")
+    return {"diem": score, "tin_hieu": signal, "nhom": out, "ly_do_mua": pros, "ly_do_ban": cons,
+            "canh_bao": warn, "gtgd_tb20": gtgd20, "kl_tb20": vma, "kl_so_tb20": vr1, "kl5_so_tb20": vr5}
+
+
 def technical(bars, price=None):
     if len(bars) < 30:
         return {"loi": "Không đủ dữ liệu giá để phân tích kỹ thuật"}
@@ -249,48 +449,10 @@ def technical(bars, price=None):
     v = [b["volume"] for b in bars]
     px = price or c[-1]
 
-    # ---- Dao động
-    ind = []
-    r = _last(rsi(c, 14))
-    if r is not None:
-        a = "Quá bán" if r < 30 else "Quá mua" if r > 70 else "Bán" if r < 45 else "Mua" if r > 55 else "Trung tính"
-        ind.append(_sig("RSI(14)", r, a))
-    st = _last(stochastic(h, l, c, 9, 6))
-    if st is not None:
-        a = "Quá bán" if st < 20 else "Quá mua" if st > 80 else "Bán" if st < 45 else "Mua" if st > 55 else "Trung tính"
-        ind.append(_sig("STOCH(9,6)", st, a))
+    # ---- Chỉ báo chính
+    rs = rsi(c, 14)
+    r = _last(rs)
     ml, ms, mh = macd(c)
-    if _last(ml) is not None and _last(ms) is not None:
-        a = "Mua" if _last(ml) > _last(ms) else "Bán"
-        ind.append(_sig("MACD(12,26,9)", _last(ml), a, f"Đường tín hiệu {_last(ms):,.1f}"))
-    ad, pdi, mdi, atr_ = adx(h, l, c, 14)
-    if _last(ad) is not None:
-        A, P, M = _last(ad), _last(pdi), _last(mdi)
-        if A < 20:
-            a, note = "Trung tính", "Xu hướng yếu / đi ngang"
-        else:
-            a = "Mua" if P > M else "Bán"
-            note = ("Xu hướng mạnh" if A > 25 else "Xu hướng vừa") + (" tăng" if P > M else " giảm")
-        ind.append(_sig("ADX(14)", A, a, note + f" (+DI {P:.1f} / −DI {M:.1f})"))
-    wr = _last(williams_r(h, l, c, 14))
-    if wr is not None:
-        a = "Quá bán" if wr < -80 else "Quá mua" if wr > -20 else "Mua" if wr > -50 else "Bán"
-        ind.append(_sig("Williams %R", wr, a))
-    cc = _last(cci(h, l, c, 14))
-    if cc is not None:
-        a = "Quá bán" if cc < -200 else "Quá mua" if cc > 200 else "Mua" if cc > 50 else "Bán" if cc < -50 else "Trung tính"
-        ind.append(_sig("CCI(14)", cc, a))
-    if len(c) > 12:
-        roc = (c[-1] / c[-13] - 1) * 100
-        ind.append(_sig("ROC(12)", roc, "Mua" if roc > 0 else "Bán", "% thay đổi 12 phiên"))
-    at = _last(atr_)
-    if at is not None:
-        ind.append(_sig("ATR(14)", at, "—", f"Biên độ dao động TB {at / px:.1%}/phiên"))
-
-    # "Quá mua" / "Quá bán" được hiển thị riêng, không tính vào số tín hiệu Mua/Bán
-    osc_buy = sum(1 for x in ind if x["tin_hieu"] == "Mua")
-    osc_sell = sum(1 for x in ind if x["tin_hieu"] == "Bán")
-    osc_total = sum(1 for x in ind if x["tin_hieu"] != "—")
 
     # ---- Trung bình động
     mas = []
@@ -301,9 +463,6 @@ def technical(bars, price=None):
         mas.append({"ten": f"MA{n}", "sma": s, "ema": e,
                     "tin_hieu_sma": "Mua" if px > s else "Bán",
                     "tin_hieu_ema": "Mua" if px > e else "Bán"})
-    ma_buy = sum((m["tin_hieu_sma"] == "Mua") + (m["tin_hieu_ema"] == "Mua") for m in mas)
-    ma_total = 2 * len(mas)
-    ma_sell = ma_total - ma_buy
 
     # ---- Bollinger, khối lượng
     bb = None
@@ -348,15 +507,9 @@ def technical(bars, price=None):
     else:
         trend = "Tăng" if s50 and px > s50 else "Giảm" if s50 else "Chưa đủ dữ liệu"
 
-    summary = {
-        "dao_dong": {"mua": osc_buy, "ban": osc_sell, "tong": osc_total,
-                     "danh_gia": _rating(osc_buy, osc_sell, osc_total)},
-        "trung_binh_dong": {"mua": ma_buy, "ban": ma_sell, "tong": ma_total,
-                            "danh_gia": _rating(ma_buy, ma_sell, ma_total)},
-    }
-    tb = osc_buy + ma_buy
-    ts = osc_sell + ma_sell
-    summary["tong_ket"] = _rating(tb, ts, osc_total + ma_total)
+    core = core_signals(c, v, ml, ms, mh, rs)
+    summary = {k: {"diem": g["diem"], "danh_gia": g["danh_gia"]} for k, g in core["nhom"].items()}
+    summary["tong_ket"] = core["tin_hieu"]
 
     # ---- 3 tiêu chí kỹ thuật cho sheet "SS Các Tiêu Chí"
     long_ma = s200 or s50
@@ -372,9 +525,9 @@ def technical(bars, price=None):
             k = "O"
         trend_ss = {"kq": k, "ghi_chu": f"Giá {'>' if px > long_ma else '<'} {ma_name} ({long_ma:,.0f}); "
                                          f"MA20 {'>' if s20 > s50 else '<'} MA50"}
-    tk = summary["tong_ket"]
-    buy_ss = {"kq": "V" if tk in ("Mua", "Mua mạnh") else "X" if tk in ("Bán", "Bán mạnh") else "O",
-              "ghi_chu": f"Tổng kết kỹ thuật: {tk}"}
+    tk = core["tin_hieu"]
+    buy_ss = {"kq": "V" if tk in ("MUA", "MUA MẠNH") else "X" if tk in ("BÁN", "BÁN MẠNH") else "O",
+              "ghi_chu": f"Kết luận kỹ thuật (KL·MACD·RSI): {tk} ({core['diem']:+d})"}
     if obv_chg20 is None or not vol_prev:
         in_ss = {"kq": "-", "ghi_chu": "Chưa đủ dữ liệu"}
     else:
@@ -384,71 +537,12 @@ def technical(bars, price=None):
                                      f"KL TB 20 phiên = {vr:.2f} lần 60 phiên trước"}
     ss = {"TREND": trend_ss, "BUY": buy_ss, "IN": in_ss}
 
-    # ---- KẾT LUẬN KỸ THUẬT: chấm điểm tổng hợp (-100 … +100)
-    pts, pros, cons = [], [], []
-
-    def add(score, maxw, text):
-        pts.append((score, maxw))
-        if score > 0:
-            pros.append(text)
-        elif score < 0:
-            cons.append(text)
-
-    A = _last(ad)
-    amp = 1.5 if A is not None and A > 25 else 1.0          # xu hướng mạnh → tăng trọng số xu hướng
-    tw = 2 * amp
-    if trend_ss["kq"] == "V":
-        add(tw, 3, f"Xu hướng tăng: {trend_ss['ghi_chu']}")
-    elif trend_ss["kq"] == "X":
-        add(-tw, 3, f"Xu hướng giảm: {trend_ss['ghi_chu']}")
-    else:
-        add(0, 3, "")
-    if ma_total:
-        s = (ma_buy - ma_sell) / ma_total * 2
-        add(s, 2, f"Giá nằm trên {ma_buy}/{ma_total} đường MA" if s > 0 else f"Giá nằm dưới {ma_sell}/{ma_total} đường MA")
-    if osc_total:
-        s = (osc_buy - osc_sell) / osc_total * 1.5
-        add(s, 1.5, f"Chỉ báo dao động: {osc_buy} mua / {osc_sell} bán")
-    mlv, msv = _last(ml), _last(ms)
-    hv = [x for x in mh if x is not None]
-    if mlv is not None and msv is not None:
-        add(1 if mlv > msv else -1, 1, "MACD nằm trên đường tín hiệu" if mlv > msv else "MACD nằm dưới đường tín hiệu")
-        if len(hv) >= 2:
-            up = hv[-1] > hv[-2]
-            add(0.5 if up else -0.5, 0.5, "Động lượng MACD đang cải thiện" if up else "Động lượng MACD đang yếu đi")
-    if r is not None:
-        if r < 30:
-            add(1, 1, f"RSI {r:.0f} quá bán — có thể hồi kỹ thuật")
-        elif r > 70:
-            add(-1, 1, f"RSI {r:.0f} quá mua — rủi ro điều chỉnh")
-        elif r >= 50:
-            add(0.5, 1, f"RSI {r:.0f} trên 50 — phe mua chiếm ưu thế")
-        else:
-            add(-0.5, 1, f"RSI {r:.0f} dưới 50 — phe bán chiếm ưu thế")
-    if in_ss["kq"] == "V":
-        add(1, 1, f"Dòng tiền vào: {in_ss['ghi_chu']}")
-    elif in_ss["kq"] == "X":
-        add(-1, 1, f"Dòng tiền ra: {in_ss['ghi_chu']}")
-    if bb:
-        if px < bb["duoi"]:
-            add(0.5, 0.5, "Giá dưới dải Bollinger dưới — vùng quá bán")
-        elif px > bb["tren"]:
-            add(-0.5, 0.5, "Giá trên dải Bollinger trên — vùng quá mua")
-    total_w = sum(w for _, w in pts) or 1
-    score = round(sum(s for s, _ in pts) / total_w * 100)
-    score = max(-100, min(100, score))
-    signal = ("MUA MẠNH" if score >= 40 else "MUA" if score >= 15 else
-              "BÁN MẠNH" if score <= -40 else "BÁN" if score <= -15 else "THEO DÕI")
-
-    below = [x for x in (pivots["S1"], pivots["S2"], lo20, bb and bb["duoi"], s50, s200) if x and x < px]
-    above = [x for x in (pivots["R1"], pivots["R2"], hi20, bb and bb["tren"], s50, s200) if x and x > px]
-    ket_luan = {
-        "diem": score, "tin_hieu": signal,
-        "ly_do_mua": pros, "ly_do_ban": cons,
-        "ho_tro": max(below) if below else None,     # None: giá đang dưới mọi mốc hỗ trợ
-        "khang_cu": min(above) if above else None,   # None: giá đang trên mọi mốc kháng cự
-        "adx_manh": A is not None and A > 25,
-    }
+    # ---- KẾT LUẬN KỸ THUẬT: Khối lượng 50% · MACD 30% · RSI 20%
+    below = [x for x in (pivots["S1"], pivots["S2"], lo20, s50, s200) if x and x < px]
+    above = [x for x in (pivots["R1"], pivots["R2"], hi20, s50, s200) if x and x > px]
+    ket_luan = dict(core,
+                    ho_tro=max(below) if below else None,     # None: giá đang dưới mọi mốc hỗ trợ
+                    khang_cu=min(above) if above else None)   # None: giá đang trên mọi mốc kháng cự
 
     # ---- Nhận định bằng lời (mô tả, không phải khuyến nghị)
     notes = [f"Xu hướng: {trend}."]
@@ -459,18 +553,17 @@ def technical(bars, price=None):
             notes.append(f"RSI {r:.1f} trong vùng quá mua — rủi ro điều chỉnh ngắn hạn tăng.")
         else:
             notes.append(f"RSI {r:.1f} ở vùng trung tính.")
-    if _last(ad) is not None:
-        notes.append(f"ADX {_last(ad):.1f}: " + ("xu hướng hiện tại mạnh." if _last(ad) > 25 else "xu hướng chưa mạnh."))
-    if vol_ratio:
-        notes.append(f"Khối lượng phiên gần nhất bằng {vol_ratio:.1f} lần trung bình 20 phiên.")
+    if core["kl_so_tb20"]:
+        notes.append(f"Khối lượng phiên gần nhất bằng {core['kl_so_tb20']:.1f} lần trung bình 20 phiên; "
+                     f"giá trị giao dịch TB 20 phiên ~{core['gtgd_tb20']:,.1f} tỷ đồng.")
     notes.append(f"Cách đỉnh 1 năm {px / hi52 - 1:+.1%}, cách đáy 1 năm {px / lo52 - 1:+.1%}.")
     if s200:
         notes.append(("Giá trên" if px > s200 else "Giá dưới") + f" MA200 ({s200:,.0f}) — mốc phân định xu hướng dài hạn.")
 
     # Chuỗi cho biểu đồ
     times = [b["time"] for b in bars]
-    rs = rsi(c, 14)
     series = {
+        "vol_ma20": [{"time": t, "value": round(x)} for t, x in zip(times, sma([float(x) for x in v], 20)) if x is not None],
         "ma20": [{"time": t, "value": round(x, 1)} for t, x in zip(times, sma(c, 20)) if x is not None],
         "ma50": [{"time": t, "value": round(x, 1)} for t, x in zip(times, sma(c, 50)) if x is not None],
         "ma200": [{"time": t, "value": round(x, 1)} for t, x in zip(times, sma(c, 200)) if x is not None],
@@ -481,7 +574,8 @@ def technical(bars, price=None):
     }
 
     return {
-        "gia": px, "xu_huong": trend, "chi_bao": ind, "trung_binh_dong": mas,
+        "gia": px, "xu_huong": trend, "chi_bao": [dict(x, nhom=g["ten"]) for g in core["nhom"].values() for x in g["chi_tiet"]],
+        "trung_binh_dong": mas,
         "tong_hop": summary, "pivot": pivots, "bollinger": bb, "kl_so_tb20": vol_ratio,
         "dinh_1_nam": hi52, "day_1_nam": lo52, "dinh_20_phien": hi20, "day_20_phien": lo20,
         "nhan_dinh": notes, "series": series, "so_phien": len(bars), "ss": ss, "ket_luan": ket_luan,
