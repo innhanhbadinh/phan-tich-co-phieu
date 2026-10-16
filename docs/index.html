@@ -177,14 +177,15 @@
     <!-- KỸ THUẬT -->
     <section class="card">
       <h2>Phân tích kỹ thuật <small id="trend"></small></h2>
-      <div class="grid g3" style="margin-bottom:12px">
-        <div class="stat"><div class="k">Giá trị GD TB 20 phiên</div><div class="v" id="t_gtgd"></div></div>
-        <div class="stat"><div class="k">KL phiên gần nhất / TB20</div><div class="v" id="t_vr1"></div></div>
-        <div class="stat"><div class="k">KL TB 5 phiên / TB20</div><div class="v" id="t_vr5"></div></div>
+      <div class="grid g4" style="margin-bottom:12px">
+        <div class="stat"><div class="k">KL phiên gần nhất</div><div class="v" id="t_kl1"></div><div class="k" id="t_vr1"></div></div>
+        <div class="stat"><div class="k">KL trung bình 5 phiên</div><div class="v" id="t_kl5"></div><div class="k" id="t_vr5"></div></div>
+        <div class="stat"><div class="k">KL trung bình 20 phiên</div><div class="v" id="t_kl20"></div><div class="k">mốc so sánh</div></div>
+        <div class="stat"><div class="k">Giá trị GD TB 20 phiên</div><div class="v" id="t_gtgd"></div><div class="k" id="t_liq"></div></div>
       </div>
       <div class="legend"><span><i style="background:#f5a623"></i>MA20</span><span><i style="background:#1f77b4"></i>MA50</span><span><i style="background:#9467bd"></i>MA200</span></div>
       <div id="c_price" class="chart"></div>
-      <div class="legend"><span><b>Khối lượng</b></span><span><i style="background:#1f5eff"></i>TB 20 phiên</span><span>cột đậm = KL ≥ 1,5 lần TB20</span></div>
+      <div class="legend"><span><b>Khối lượng</b></span><span><i style="background:#1f5eff"></i>TB 20 phiên</span><span>đơn vị: triệu cổ phiếu · cột đậm = KL ≥ 1,5 lần TB20</span></div>
       <div id="c_vol" class="chart" style="height:150px"></div>
       <div class="legend"><span><b>MACD(12,26,9)</b></span><span><i style="background:#1f5eff"></i>MACD</span><span><i style="background:#f5a623"></i>Tín hiệu</span></div>
       <div id="c_macd" class="chart sm"></div>
@@ -220,6 +221,7 @@ const API_BASE = "https://phan-tich-co-phieu-api.onrender.com";
 
 const $ = id => document.getElementById(id);
 const fmt = (x, d = 0) => x == null || isNaN(x) ? "—" : Number(x).toLocaleString("vi-VN", {maximumFractionDigits: d, minimumFractionDigits: d});
+const klm = x => x == null ? "—" : x >= 10000 ? fmt(x / 1e6, 2) + " tr cp" : fmt(x) + " cp";
 const pct = (x, d = 1) => x == null || isNaN(x) ? "—" : (x * 100).toLocaleString("vi-VN", {maximumFractionDigits: d, minimumFractionDigits: d}) + "%";
 const sign = (x) => x == null ? "" : x >= 0 ? "up" : "down";
 const tagClass = s => /Mua/.test(s) ? "buy" : /Bán/.test(s) ? "sell" : /Quá/.test(s) ? "over" : "";
@@ -402,15 +404,19 @@ function render(d) {
     }).join("");
     $("t_gtgd").textContent = fmt(kl.gtgd_tb20, 1) + " tỷ";
     $("t_gtgd").className = "v " + (kl.gtgd_tb20 < 1 ? "down" : "");
-    for (const [id, x] of [["t_vr1", kl.kl_so_tb20], ["t_vr5", kl.kl5_so_tb20]]) {
-      $(id).textContent = x == null ? "—" : fmt(x, 2) + " lần";
-      $(id).className = "v " + (x >= 1.5 ? "up" : x != null && x < 0.7 ? "muted" : "");
+    $("t_liq").textContent = kl.gtgd_tb20 < 1 ? "thanh khoản thấp" : kl.gtgd_tb20 < 10 ? "thanh khoản trung bình" : "thanh khoản tốt";
+    $("t_kl20").textContent = klm(kl.kl_tb20);
+    for (const [vid, rid, x, r] of [["t_kl1", "t_vr1", kl.kl_phien, kl.kl_so_tb20], ["t_kl5", "t_vr5", kl.kl_tb5, kl.kl5_so_tb20]]) {
+      $(vid).textContent = klm(x);
+      $(vid).className = "v " + (r >= 1.5 ? "up" : r != null && r < 0.7 ? "muted" : "");
+      $(rid).textContent = r == null ? "" : `= ${fmt(r, 2)} lần TB20`;
     }
   }
   $("notes").innerHTML = t.nhan_dinh.map(n => `<li>${n}</li>`).join("");
   const fv = x => x.gia_tri == null ? "—" : x.don_vi === "x TB20" || x.don_vi === "lần" ? fmt(x.gia_tri, 2) + " lần"
     : x.don_vi === "tỷ đ" ? fmt(x.gia_tri, 1) + " tỷ"
-    : x.don_vi === "cp" ? (x.gia_tri > 0 ? "+" : "") + fmt(x.gia_tri / 1e6, 1) + " tr cp" : x.don_vi === "phiên" ? (x.gia_tri > 0 ? "+" : "") + x.gia_tri
+    : x.don_vi === "cp" ? (x.gia_tri > 0 ? "+" : "") + fmt(x.gia_tri / 1e6, 2) + " tr cp"
+    : x.don_vi === "kl" ? klm(x.gia_tri) : x.don_vi === "phiên" ? (x.gia_tri > 0 ? "+" : "") + x.gia_tri
     : fmt(x.gia_tri, Math.abs(x.gia_tri) >= 1000 ? 0 : 2);
   let lastGrp = "";
   $("t_ind").innerHTML = `<tr><th>Chỉ báo</th><th>Giá trị</th><th>Tín hiệu</th></tr>` +
