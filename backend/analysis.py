@@ -239,6 +239,15 @@ def _rating(buy, sell, total):
     return "Trung tính"
 
 
+def _kl(x):
+    """Khối lượng -> '4,32 tr cp' (dưới 10.000 cp thì ghi số cp)"""
+    if x is None:
+        return "—"
+    if x >= 10_000:
+        return f"{x / 1e6:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") + " tr cp"
+    return f"{x:,.0f}".replace(",", ".") + " cp"
+
+
 def _clamp(x, lo=-1.0, hi=1.0):
     return max(lo, min(hi, x))
 
@@ -260,7 +269,8 @@ def core_signals(c, v, ml, ms, mh, rs):
     vma = sum(v[-21:-1]) / 20 if n > 21 else (sum(v) / n if n else 0)   # TB 20 phiên trước phiên gần nhất
     chg = c[-1] / c[-2] - 1 if n > 1 and c[-2] else 0.0
     vr1 = v[-1] / vma if vma else None
-    vr5 = (sum(v[-5:]) / 5) / vma if vma and n >= 5 else None
+    kl5 = sum(v[-5:]) / 5 if n >= 5 else None
+    vr5 = kl5 / vma if vma and kl5 is not None else None
     gtgd20 = sum(a * b for a, b in zip(v[-20:], c[-20:])) / min(20, n) / 1e9   # tỷ đồng / phiên
     prev60 = v[-80:-20]
     liq_trend = (sum(v[-20:]) / 20) / (sum(prev60) / len(prev60)) if len(prev60) >= 20 and sum(prev60) else None
@@ -270,19 +280,27 @@ def core_signals(c, v, ml, ms, mh, rs):
     if vr1 is not None:
         if chg > 0:
             a = 1.0 if vr1 >= 1.5 else 0.6 if vr1 >= 1.0 else 0.2 if vr1 >= 0.7 else 0.0
-            txt = (f"Phiên gần nhất tăng {chg:+.1%} với KL {vr1:.1f} lần TB20"
+            txt = (f"Phiên gần nhất tăng {chg:+.1%}, KL {_kl(v[-1])} = {vr1:.1f} lần TB20 ({_kl(vma)})"
                    + (" — tiền vào mạnh (KL đột biến)" if vr1 >= 1.5 else
                       " — có KL xác nhận" if vr1 >= 1.0 else " — KL thấp, lực mua chưa thuyết phục"))
         elif chg < 0:
             a = -1.0 if vr1 >= 1.5 else -0.6 if vr1 >= 1.0 else -0.2 if vr1 >= 0.7 else 0.0
-            txt = (f"Phiên gần nhất giảm {chg:+.1%} với KL {vr1:.1f} lần TB20"
+            txt = (f"Phiên gần nhất giảm {chg:+.1%}, KL {_kl(v[-1])} = {vr1:.1f} lần TB20 ({_kl(vma)})"
                    + (" — bán tháo / phân phối mạnh" if vr1 >= 1.5 else
                       " — áp lực bán có KL" if vr1 >= 1.0 else " — KL thấp, lực bán yếu (có thể cạn cung)"))
         else:
-            txt = f"Phiên gần nhất đứng giá, KL {vr1:.1f} lần TB20"
-        vd.append({"ten": "Giá & KL phiên gần nhất", "gia_tri": vr1, "don_vi": "x TB20",
+            txt = f"Phiên gần nhất đứng giá, KL {_kl(v[-1])} = {vr1:.1f} lần TB20 ({_kl(vma)})"
+        vd.append({"ten": "Giá & KL phiên gần nhất", "gia_tri": v[-1], "don_vi": "kl",
                    "tin_hieu": "Mua" if a > 0.3 else "Bán" if a < -0.3 else "Trung tính", "ghi_chu": txt})
         (vpros if a > 0.3 else vcons if a < -0.3 else []).append(txt)
+
+    if kl5 is not None and vma:
+        vd.append({"ten": "KL trung bình 5 phiên", "gia_tri": kl5, "don_vi": "kl", "tin_hieu": "—",
+                   "ghi_chu": f"= {vr5:.2f} lần TB20 — " + ("KL đang tăng mạnh" if vr5 >= 1.5 else
+                              "KL cao hơn bình thường" if vr5 >= 1.1 else "KL thấp hơn bình thường" if vr5 <= 0.8
+                              else "KL bình thường")})
+        vd.append({"ten": "KL trung bình 20 phiên", "gia_tri": vma, "don_vi": "kl", "tin_hieu": "—",
+                   "ghi_chu": "Mốc so sánh khối lượng (không tính phiên gần nhất)"})
 
     # b) Ngày tích lũy / phân phối trong 10 phiên
     acc = dis = 0
@@ -436,7 +454,8 @@ def core_signals(c, v, ml, ms, mh, rs):
     signal = ("MUA MẠNH" if score >= 40 else "MUA" if score >= 15 else
               "BÁN MẠNH" if score <= -40 else "BÁN" if score <= -15 else "THEO DÕI")
     return {"diem": score, "tin_hieu": signal, "nhom": out, "ly_do_mua": pros, "ly_do_ban": cons,
-            "canh_bao": warn, "gtgd_tb20": gtgd20, "kl_tb20": vma, "kl_so_tb20": vr1, "kl5_so_tb20": vr5}
+            "canh_bao": warn, "gtgd_tb20": gtgd20, "kl_tb20": vma, "kl_phien": v[-1] if n else None, "kl_tb5": kl5,
+            "kl_so_tb20": vr1, "kl5_so_tb20": vr5}
 
 
 def technical(bars, price=None):
@@ -554,7 +573,8 @@ def technical(bars, price=None):
         else:
             notes.append(f"RSI {r:.1f} ở vùng trung tính.")
     if core["kl_so_tb20"]:
-        notes.append(f"Khối lượng phiên gần nhất bằng {core['kl_so_tb20']:.1f} lần trung bình 20 phiên; "
+        notes.append(f"Khối lượng phiên gần nhất {_kl(core['kl_phien'])}, bằng {core['kl_so_tb20']:.1f} lần "
+                     f"trung bình 20 phiên ({_kl(core['kl_tb20'])}); "
                      f"giá trị giao dịch TB 20 phiên ~{core['gtgd_tb20']:,.1f} tỷ đồng.")
     notes.append(f"Cách đỉnh 1 năm {px / hi52 - 1:+.1%}, cách đáy 1 năm {px / lo52 - 1:+.1%}.")
     if s200:
